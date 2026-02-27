@@ -1,0 +1,401 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Block Island - Phase 1 Prototype</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="panel">
+        <h1>Block Island - Phase 1 Prototype</h1>
+        <p class="subtitle">Menu-based life and economy simulation prototype</p>
+      </header>
+
+      <section class="panel top-bar">
+        <div class="top-item top-date-item">
+          <p class="top-label">Date</p>
+          <p class="top-value" id="top-date-value">April 1 &bull; Monday</p>
+          <p class="top-subtle" id="top-season-value">Spring</p>
+        </div>
+        <div class="top-item">
+          <p class="top-label">Actions Left</p>
+          <p class="top-value"><span id="slots-value">3/3</span></p>
+        </div>
+        <div class="top-item">
+          <p class="top-label">Weekly Rent</p>
+          <p class="top-value" id="top-rent-value">$200</p>
+          <p class="top-subtle" id="top-rent-due-value">Next rent due: Monday (in 7 days)</p>
+        </div>
+        <div class="top-item">
+          <p class="top-label">Dev Mode</p>
+          <label class="dev-toggle" for="dev-mode-toggle">
+            <input id="dev-mode-toggle" type="checkbox" />
+            <span>Enable Dev Mode</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="main-layout">
+        <div class="left-column">
+          <section class="panel actions-panel">
+            <h2 class="section-title">
+              Actions
+              <span class="tooltip-wrap tile-tooltip" id="actions-tooltip-wrap">
+                <button type="button" class="info-bubble" aria-label="About Actions">?</button>
+                <span class="tooltip-text" role="tooltip" id="actions-tooltip-text">
+                  <span>You get 3 actions per day.</span>
+                  <span>Sleep advances time and resets actions.</span>
+                  <span>Work: Earn money and build reputation.</span>
+                  <span id="actions-tooltip-eat-line">Eat: Costs $18 to restore hunger and energy.</span>
+                  <span id="actions-tooltip-socialize-line">Socialize: Costs $8 to build reputation and social network.</span>
+                  <span>Rest: Recover energy.</span>
+                </span>
+              </span>
+            </h2>
+            <div class="actions-today-context" id="actions-today-context">
+              <p id="actions-today-date">Spring • Monday</p>
+              <p id="actions-today-slots">Actions left: 3/3</p>
+              <p id="actions-today-hint">It&apos;s a normal day on the island.</p>
+            </div>
+            <div class="actions">
+              <span id="work-wrap" class="action-button-wrap">
+                <button id="work-button" type="button">
+                  <span class="btn-title">Work</span>
+                  <span class="btn-sub">Money + rep (varies by shift)</span>
+                </button>
+              </span>
+              <span id="eat-wrap" class="action-button-wrap">
+                <button id="eat-button" type="button">
+                  <span class="btn-title">Eat</span>
+                  <span class="btn-sub">$ → hunger</span>
+                </button>
+              </span>
+              <span id="socialize-wrap" class="action-button-wrap">
+                <button id="socialize-button" type="button">
+                  <span class="btn-title">Socialize</span>
+                  <span class="btn-sub">Relationships + rep</span>
+                </button>
+              </span>
+              <span id="rest-wrap" class="action-button-wrap">
+                <button id="rest-button" type="button">
+                  <span class="btn-title">Rest</span>
+                  <span class="btn-sub">Energy</span>
+                </button>
+              </span>
+              <span id="sleep-wrap" class="action-button-wrap">
+                <button id="sleep-button" type="button">
+                  <span class="btn-title">Sleep</span>
+                  <span class="btn-sub">Next day</span>
+                </button>
+              </span>
+              <button id="new-game-button" type="button" class="danger">
+                <span class="btn-title">New Game</span>
+                <span class="btn-sub">Reset save</span>
+              </button>
+            </div>
+            <div id="actions-quick-summary" class="actions-quick-summary">
+              <p id="quick-summary-rent">Next rent due: Monday (in 7 days)</p>
+              <p id="quick-summary-pay">Current job pay: No active job</p>
+              <p id="quick-summary-conditions">Conditions: No unusual conditions today.</p>
+              <p id="quick-summary-suggestion">Suggested action: It&apos;s a normal day on the island.</p>
+            </div>
+          </section>
+
+          <section class="panel log-panel">
+            <h2 class="section-title">
+              Message Log
+              <button id="log-toggle-btn" type="button" class="text-toggle">Collapse Log</button>
+              <span class="tooltip-wrap tile-tooltip" id="message-log-tooltip-wrap">
+                <button type="button" class="info-bubble" aria-label="About Message Log">?</button>
+                <span class="tooltip-text" role="tooltip" id="message-log-tooltip-text">
+                  <span>Tracks important events from your day-to-day life.</span>
+                  <span>Newest items appear at the top.</span>
+                  <span>DEV entries are tagged [DEV] when Dev Mode is enabled.</span>
+                </span>
+              </span>
+            </h2>
+            <ul id="message-log" class="log"></ul>
+          </section>
+        </div>
+
+        <div class="right-column">
+          <section class="panel collapsible-panel" id="world-panel">
+            <h2 class="section-title">
+              World
+              <button id="world-toggle-btn" type="button" class="text-toggle panel-toggle">Collapse</button>
+            </h2>
+            <div id="world-panel-body" class="panel-body">
+              <p class="world-date-line" id="world-date-line">April 1 • Monday</p>
+              <p class="world-season-line" id="world-season-line">Spring</p>
+              <p class="helper-text" id="world-vibe-line">
+                The island is waking up. Workers are returning and things are picking up.
+              </p>
+              <p><strong>Conditions:</strong> <span id="world-modifiers-summary">No unusual conditions today.</span></p>
+            </div>
+          </section>
+
+          <section class="panel collapsible-panel" id="opportunities-panel">
+            <h2 class="section-title">
+              Opportunities
+              <button id="opportunities-toggle-btn" type="button" class="text-toggle panel-toggle">Collapse</button>
+            </h2>
+            <div id="opportunities-panel-body" class="panel-body">
+              <div class="opportunities-section">
+                <p><strong>Current Job:</strong> <span id="opportunities-current-job-name">None</span></p>
+                <p><strong>Role:</strong> <span id="opportunities-current-job-role">-</span></p>
+                <p><strong>Pay:</strong> <span id="opportunities-current-job-pay">No active job</span></p>
+                <div class="opportunities-actions-row">
+                  <button id="switch-job-button" type="button">Switch Job</button>
+                  <button id="quit-job-button" type="button">Quit Job</button>
+                </div>
+              </div>
+
+              <div class="opportunities-section">
+                <p><strong>Job Opportunities</strong></p>
+                <div class="scroll-list">
+                  <ul id="opportunities-job-list" class="career-job-preview"></ul>
+                </div>
+                <p class="helper-text" id="opportunities-unlocked-summary">No unlocked venues yet.</p>
+                <p class="helper-text" id="opportunities-pending-job" hidden>
+                  Pending job change: None
+                </p>
+                <button id="cancel-pending-job-button" type="button" hidden>Cancel</button>
+              </div>
+
+              <div class="opportunities-section">
+                <p><strong>Housing Opportunities</strong></p>
+                <div class="scroll-list">
+                  <ul id="opportunities-housing-list" class="career-job-preview"></ul>
+                </div>
+                <p class="helper-text" id="opportunities-housing-empty">No housing opportunities right now.</p>
+                <span id="move-shared-house-wrap" class="action-button-wrap" hidden>
+                  <button id="move-shared-house-button" type="button">
+                    Move to Shared House
+                  </button>
+                </span>
+                <p id="move-shared-house-help" class="helper-text" hidden>Requires $3000 and 20 Town Rep.</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2 class="section-title">
+              Player
+              <span class="tooltip-wrap tile-tooltip" id="player-tooltip-wrap">
+                <button type="button" class="info-bubble" aria-label="About Player">?</button>
+                <span class="tooltip-text" role="tooltip" id="player-tooltip-text">
+                  <span>Shows your money, reputation, and core needs.</span>
+                  <span>Energy powers Work and Socialize. Rest restores it.</span>
+                  <span>Hunger impacts your day. Eat restores hunger and energy.</span>
+                  <span>Mood affects social gains and recovery.</span>
+                  <span>Town Rep opens jobs and housing over time.</span>
+                  <span>Bar Rep reflects how known you are in nightlife and service scenes.</span>
+                  <span>Lifestyle shapes daily costs and social effectiveness.</span>
+                  <span>Frugal: cheaper, less social momentum.</span>
+                  <span>Normal: balanced routine.</span>
+                  <span>Social: stronger social gains at higher cost.</span>
+                </span>
+              </span>
+            </h2>
+            <p><strong>Money:</strong> <span id="money-value">$0</span></p>
+            <p>
+              <strong>Town Rep:</strong>
+              <span id="reputation-town-value">0</span>
+              <span id="reputation-tier" class="tag">Unknown</span>
+            </p>
+            <p><strong>Bar Rep:</strong> <span id="reputation-bar-value">0</span></p>
+
+            <div class="need-row">
+              <label>Energy</label>
+              <div class="bar"><div id="energy-bar" class="fill"></div></div>
+              <span id="energy-value">0</span>
+            </div>
+            <div class="need-row">
+              <label>Hunger</label>
+              <div class="bar"><div id="hunger-bar" class="fill"></div></div>
+              <span id="hunger-value">0</span>
+            </div>
+            <div class="need-row">
+              <label>Mood</label>
+              <div class="bar"><div id="social-bar" class="fill"></div></div>
+              <span id="social-value">0</span>
+            </div>
+            <p>
+              <strong>Lifestyle</strong>
+              <select id="lifestyle-select">
+                <option value="frugal">Frugal</option>
+                <option value="normal">Normal</option>
+                <option value="social">Social</option>
+              </select>
+            </p>
+          </section>
+
+          <section class="panel collapsible-panel" id="career-panel">
+            <h2 class="section-title">
+              Career
+              <button id="career-toggle-btn" type="button" class="text-toggle panel-toggle">Collapse</button>
+              <span class="tooltip-wrap tile-tooltip" id="career-tooltip-wrap">
+                <button type="button" class="info-bubble" aria-label="About Career">?</button>
+                <span class="tooltip-text" role="tooltip" id="career-tooltip-text">
+                  <span>Jobs pay per shift and level up as you work.</span>
+                  <span>Promotion progress fills toward your next level.</span>
+                  <span>At higher levels, new opportunities can unlock.</span>
+                  <span>Jobs tagged for tips can pay extra, especially in busy summer weeks.</span>
+                </span>
+              </span>
+            </h2>
+            <div id="career-panel-body" class="panel-body">
+              <div id="career-start-state">
+                <label for="job-select-start" class="job-label">Select a starting job</label>
+                <select id="job-select-start"></select>
+                <ul id="career-job-preview" class="career-job-preview"></ul>
+              </div>
+
+              <div id="career-active-state" hidden>
+                <p><strong>Active Job:</strong> <span id="career-job-name">None selected</span></p>
+                <p id="career-status-row" hidden>
+                  <strong>Status:</strong> <span id="career-status-value">Unemployed</span>
+                </p>
+                <div id="career-employed-details">
+                  <p><strong>Level:</strong> <span id="career-level-value">-</span></p>
+                  <p><strong>Pay:</strong> <span id="career-pay-value">$0/shift</span></p>
+                  <p><strong>Next Promotion:</strong> <span id="next-promotion-value">Select a job</span></p>
+                </div>
+                <button id="find-job-button" type="button" hidden>Find Job</button>
+              </div>
+
+              <div id="career-switch-state" hidden>
+                <label for="job-select-switch" class="job-label">Select new job</label>
+                <select id="job-select-switch"></select>
+                <button id="confirm-switch-button" type="button">Confirm Switch</button>
+                <p class="helper-text">Switching jobs takes effect tomorrow.</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel collapsible-panel" id="social-panel">
+            <h2 class="section-title">
+              Social Network
+              <button id="social-toggle-btn" type="button" class="text-toggle panel-toggle">Expand</button>
+              <span class="tooltip-wrap tile-tooltip" id="social-network-tooltip-wrap">
+                <button type="button" class="info-bubble" aria-label="About Social Network">?</button>
+                <span class="tooltip-text" role="tooltip" id="social-network-tooltip-text">
+                  <span>Tracks who you are getting to know on the island.</span>
+                  <span>Locals unlock housing and steady opportunities.</span>
+                  <span>Seasonal Staff help with referrals and work ties.</span>
+                  <span>Summer People can lead to tips and seasonal opportunities.</span>
+                </span>
+              </span>
+            </h2>
+            <div id="social-panel-body" class="panel-body" hidden>
+              <p class="social-line">
+                <strong>Locals:</strong>
+                <span id="social-locals-value">0 / 100</span>
+              </p>
+              <p class="social-line">
+                <strong>Seasonal Staff:</strong>
+                <span id="social-staff-value">0 / 100</span>
+              </p>
+              <p class="social-line">
+                <strong>Summer People:</strong>
+                <span id="social-summer-people-value">0 / 100</span>
+              </p>
+            </div>
+          </section>
+
+          <section class="panel collapsible-panel" id="economy-panel">
+            <h2 class="section-title">
+              Economy &amp; Housing
+              <button id="economy-toggle-btn" type="button" class="text-toggle panel-toggle">Collapse</button>
+              <span class="tooltip-wrap tile-tooltip" id="economy-tooltip-wrap">
+                <button type="button" class="info-bubble" aria-label="About Economy and Housing">?</button>
+                <span class="tooltip-text" role="tooltip" id="economy-tooltip-text">
+                  <span>Rent is charged when you sleep into Monday.</span>
+                  <span>Next rent due shows the weekly countdown.</span>
+                  <span>Weekly expenses include rent and housing costs.</span>
+                  <span>Locals discounts may reduce your rent.</span>
+                </span>
+              </span>
+            </h2>
+            <div id="economy-panel-body" class="panel-body">
+              <p><strong>Housing:</strong> <span id="housing-value">Employee Housing</span></p>
+              <p><strong>Weekly Rent:</strong> <span id="weekly-rent-value">$200/wk</span></p>
+              <p><strong>Weekly Expenses:</strong> <span id="weekly-expenses-value">$200/wk</span></p>
+              <p><strong>Today's Event:</strong> <span id="today-event-value">None</span></p>
+              <p id="local-discount-note" class="helper-text" hidden>Local discount: -10%</p>
+              <p><strong>Next Rent Due:</strong> <span id="economy-next-rent-due-value">Monday (in 7 days)</span></p>
+            </div>
+          </section>
+
+          <section class="panel collapsible-panel" id="goal-panel">
+            <h2 class="section-title">
+              Next Goal
+              <button id="goal-toggle-btn" type="button" class="text-toggle panel-toggle">Expand</button>
+              <span class="tooltip-wrap tile-tooltip" id="next-goal-tooltip-wrap">
+                <button type="button" class="info-bubble" aria-label="About Next Goal">?</button>
+                <span class="tooltip-text" role="tooltip" id="next-goal-tooltip-text">
+                  <span>Tracks your current milestone target.</span>
+                  <span>Money and reputation progress update automatically.</span>
+                </span>
+              </span>
+            </h2>
+            <div id="goal-panel-body" class="panel-body" hidden>
+              <p><strong>Goal:</strong> Move into Shared House Room</p>
+              <p><strong>Money:</strong> <span id="goal-money-progress">$0 / $3000</span></p>
+              <p><strong>Town Rep:</strong> <span id="goal-reputation-progress">0 / 20</span></p>
+              <p id="goal-status" class="helper-text">Need $3000 more money. Need 20 more reputation.</p>
+            </div>
+          </section>
+
+          <section class="panel" id="dev-tools-panel" hidden>
+            <h2 class="section-title">
+              Dev Tools
+              <button id="dev-tools-toggle-btn" type="button" class="text-toggle">Collapse</button>
+            </h2>
+            <div class="dev-tools-grid" id="dev-tools-content">
+              <button type="button" data-dev-action="add_money_100">+ $100</button>
+              <button type="button" data-dev-action="add_money_1000">+ $1000</button>
+              <button type="button" data-dev-action="set_rep_100">Set Town Rep 100</button>
+              <button type="button" data-dev-action="set_locals_60">Set Locals 60</button>
+              <button type="button" data-dev-action="set_locals_85">Set Locals 85</button>
+              <button type="button" data-dev-action="set_staff_60">Set Staff 60</button>
+              <button type="button" data-dev-action="set_staff_85">Set Staff 85</button>
+              <button type="button" data-dev-action="set_tourists_50">Set Summer People 50</button>
+              <button type="button" data-dev-action="set_tourists_80">Set Summer People 80</button>
+              <button type="button" data-dev-action="jump_set_season_summer">Jump: Set Season Summer</button>
+              <button type="button" data-dev-action="jump_job_l5_unlock">Jump: Job L5 + Unlock next job</button>
+              <button type="button" data-dev-action="jump_shared_house_ready">Jump: Ready for Shared House</button>
+              <button type="button" data-dev-action="jump_sunday_night">Jump: Sunday Night</button>
+              <button type="button" data-dev-action="run_smoke_tests">Run Smoke Tests</button>
+              <button type="button" data-dev-action="run_autoplay_30">Run Autoplay (30 days)</button>
+              <button id="dev-preview-tooltips-toggle" type="button" aria-pressed="false">
+                Preview Tooltips: OFF
+              </button>
+              <button type="button" class="danger" data-dev-action="reset_save">Reset Save</button>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="./src/time.js"></script>
+    <script src="./src/needs.js"></script>
+    <script src="./src/content.js"></script>
+    <script src="./src/rng.js"></script>
+    <script src="./src/jobs.js"></script>
+    <script src="./src/reputation.js"></script>
+    <script src="./src/socialUnlocks.js"></script>
+    <script src="./src/balance.js"></script>
+    <script src="./src/lifestyle.js"></script>
+    <script src="./src/housing.js"></script>
+    <script src="./src/storage.js"></script>
+    <script src="./src/state.js"></script>
+    <script src="./src/events.js"></script>
+    <script src="./src/smokeTests.js"></script>
+    <script src="./src/devtools.js"></script>
+    <script src="./src/ui.js"></script>
+    <script src="./src/main.js"></script>
+  </body>
+</html>
