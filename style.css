@@ -8,7 +8,9 @@
   --danger: #b23a3a;
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -22,8 +24,9 @@ body {
   font-family: Arial, sans-serif;
   color: var(--text);
   background: var(--bg);
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .app {
@@ -418,7 +421,8 @@ p {
 
 .tooltip-text {
   position: absolute;
-  left: 0;
+  left: auto;
+  right: 0;
   top: calc(100% + 6px);
   min-width: 220px;
   max-width: 280px;
@@ -435,6 +439,31 @@ p {
   transition: opacity 0.12s ease, transform 0.12s ease;
   pointer-events: none;
   z-index: 20;
+}
+
+@media (pointer: coarse) {
+  .text-toggle {
+    min-height: 38px;
+    padding: 7px 12px;
+  }
+
+  .dev-toggle input {
+    width: 20px;
+    height: 20px;
+  }
+
+  .info-bubble,
+  .actions .action-button-wrap .info-bubble {
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    flex-basis: 28px;
+    font-size: 0.84rem;
+  }
+}
+
+#lifestyle-select {
+  max-width: 100%;
 }
 
 .tooltip-text span {
@@ -622,14 +651,14 @@ button:disabled {
   padding-right: 2px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 900px) {
   .top-bar {
     grid-template-columns: 1fr;
   }
 
   .main-layout {
     grid-template-columns: 1fr;
-    overflow: auto;
+    overflow: visible;
   }
 
   .left-column {
@@ -640,6 +669,81 @@ button:disabled {
   .right-column {
     overflow: visible;
     padding-right: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  body {
+    overflow-y: auto;
+  }
+
+  .app {
+    width: 100%;
+    min-height: 100vh;
+    height: auto;
+    padding: 8px;
+    gap: 10px;
+  }
+
+  .panel {
+    padding: 10px;
+  }
+
+  h1 {
+    font-size: clamp(1.8rem, 8.2vw, 2.3rem);
+    line-height: 1.12;
+    overflow-wrap: anywhere;
+    margin-bottom: 8px;
+  }
+
+  .subtitle {
+    font-size: 1.03rem;
+    line-height: 1.35;
+  }
+
+  .actions {
+    grid-template-columns: 1fr;
+  }
+
+  .section-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 6px;
+  }
+
+  .text-toggle {
+    min-height: 40px;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+
+  .panel-toggle {
+    min-width: 84px;
+  }
+
+  .dev-toggle {
+    min-height: 40px;
+    gap: 10px;
+  }
+
+  .dev-toggle input {
+    width: 20px;
+    height: 20px;
+  }
+
+  .info-bubble,
+  .actions .action-button-wrap .info-bubble {
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+    flex-basis: 32px;
+    font-size: 0.9rem;
+  }
+
+  .tooltip-text {
+    min-width: min(250px, calc(100vw - 30px));
+    max-width: min(300px, calc(100vw - 30px));
   }
 
   .need-row {
@@ -653,5 +757,25 @@ button:disabled {
 
   .dev-tools-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .top-date-item .top-value {
+    font-size: 1.85rem;
+  }
+
+  .top-subtle,
+  .top-label,
+  .actions-today-context #actions-today-slots,
+  .actions-today-context #actions-today-hint,
+  .actions-quick-summary p {
+    font-size: 0.88rem;
+    line-height: 1.35;
+  }
+
+  .log {
+    font-size: 0.95rem;
+    line-height: 1.35;
   }
 }
