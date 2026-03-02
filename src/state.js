@@ -9,7 +9,7 @@
   var housing = ns.housing;
   var content = ns.content;
 
-  var MAX_LOG_ENTRIES = 80;
+  var MAX_RENDERED_LOG_ENTRIES = 250;
   var SEASONS = ["spring", "summer", "fall", "winter"];
 
   function ensurePath(obj, pathArray, defaultValue) {
@@ -96,7 +96,7 @@
       ? content.meta.defaultSeason
       : "spring";
 
-    return {
+    initialState = {
       season: normalizeSeason(defaultSeason, "spring"),
       events: createInitialEventsState()
     };
@@ -416,6 +416,7 @@
   }
 
   function createInitialState() {
+    var initialState;
     var initialJobs = jobs.createInitialJobsState();
     var relationships = createInitialRelationshipsState();
     var initialTime = time.createInitialTimeState();
@@ -430,7 +431,7 @@
     ensurePath(initialWorld, ["day"], initialDayNumber);
     ensurePath(initialWorld, ["season"], seasonFromIndex(initialTime.seasonIndex));
 
-    return {
+    initialState = {
       meta: {
         version: 1,
         prototype: "phase1"
@@ -453,12 +454,20 @@
       jobs: initialJobs,
       housing: housing.createInitialHousingState(),
       flags: createInitialFlagsState(),
-      log: [
+      logRendered: [
+        "Pick a job to start earning.",
+        "Find work, earn your place, and build a life here.",
+        "You arrive on Block Island with a small room and a fresh start."
+      ],
+      logArchive: [
         "Pick a job to start earning.",
         "Find work, earn your place, and build a life here.",
         "You arrive on Block Island with a small room and a fresh start."
       ]
     };
+
+    initialState.log = initialState.logRendered;
+    return initialState;
   }
 
   function createStateFromSave(raw) {
@@ -618,24 +627,91 @@
     ensurePath(state, ["world", "day"], currentDayNumberFromTime);
     state.world.day = currentDayNumberFromTime;
 
-    if (Array.isArray(raw.log)) {
-      state.log = raw.log
+    if (Array.isArray(raw.logRendered) || Array.isArray(raw.log)) {
+      state.logRendered = (Array.isArray(raw.logRendered) ? raw.logRendered : raw.log)
         .map(function (entry) {
           return String(entry);
         })
-        .slice(-MAX_LOG_ENTRIES);
+        .slice(-MAX_RENDERED_LOG_ENTRIES);
+    }
+    if (Array.isArray(raw.logArchive)) {
+      state.logArchive = raw.logArchive.map(function (entry) {
+        return String(entry);
+      });
     }
 
     ensureRelationshipsContainer(state);
+    ensureMessageLogState(state);
 
     return state;
   }
 
   function addLogEntry(state, message) {
-    state.log.push(message);
-    if (state.log.length > MAX_LOG_ENTRIES) {
-      state.log = state.log.slice(-MAX_LOG_ENTRIES);
+    var logState = ensureMessageLogState(state);
+
+    logState.archive.push(String(message));
+    logState.rendered.push(String(message));
+    if (logState.rendered.length > MAX_RENDERED_LOG_ENTRIES) {
+      state.logRendered = logState.rendered.slice(-MAX_RENDERED_LOG_ENTRIES);
+      state.log = state.logRendered;
     }
+  }
+
+  function clearRenderedLog(state) {
+    ensureMessageLogState(state);
+    state.logRendered = [];
+    state.log = state.logRendered;
+  }
+
+  function getLogArchive(state) {
+    var logState = ensureMessageLogState(state);
+    return logState.archive.slice();
+  }
+
+function ensureMessageLogState(state) {
+    var rendered;
+    var archive;
+
+    if (!state || typeof state !== "object") {
+      return {
+        rendered: [],
+        archive: []
+      };
+    }
+
+    rendered = Array.isArray(state.logRendered)
+      ? state.logRendered
+      : (Array.isArray(state.log) ? state.log : []);
+    archive = Array.isArray(state.logArchive)
+      ? state.logArchive
+      : rendered.slice();
+
+    state.logRendered = rendered
+      .map(function (entry) {
+        return String(entry);
+      })
+      .slice(-MAX_RENDERED_LOG_ENTRIES);
+    state.logArchive = archive
+      .map(function (entry) {
+        return String(entry);
+      });
+    state.log = state.logRendered;
+
+    if (!Object.prototype.hasOwnProperty.call(state, "messageLogArchive")) {
+      Object.defineProperty(state, "messageLogArchive", {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value: state.logArchive
+      });
+    } else {
+      state.messageLogArchive = state.logArchive;
+    }
+
+    return {
+      rendered: state.logRendered,
+      archive: state.logArchive
+    };
   }
 
   ns.state = {
@@ -658,8 +734,11 @@
     getTouristRelationship: getTouristRelationship,
     addSocialRelationship: addSocialRelationship,
     ensurePath: ensurePath,
+    MAX_RENDERED_LOG_ENTRIES: MAX_RENDERED_LOG_ENTRIES,
     createInitialState: createInitialState,
     createStateFromSave: createStateFromSave,
-    addLogEntry: addLogEntry
+    addLogEntry: addLogEntry,
+    clearRenderedLog: clearRenderedLog,
+    getLogArchive: getLogArchive
   };
 })(window);
