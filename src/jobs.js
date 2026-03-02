@@ -295,6 +295,64 @@
   function normalizeJobDefinition(jobId, rawDefinition) {
     var definition = rawDefinition && typeof rawDefinition === "object" ? rawDefinition : {};
     var unlockRequirement = normalizeUnlockRequirement(definition.unlockRequires);
+    var tags = normalizeJobTags(definition.tags);
+
+    function hasTag(tag) {
+      return tags.indexOf(tag) >= 0;
+    }
+
+    function inferVenueType() {
+      if (typeof definition.venueType === "string" && definition.venueType.trim()) {
+        return definition.venueType.trim();
+      }
+      if (hasTag("bar")) return "bar";
+      if (hasTag("retail")) return "retail";
+      if (hasTag("labor") || hasTag("outdoors")) return "manual_labor";
+      if (hasTag("municipal")) return "service";
+      if (hasTag("service") || hasTag("hospitality")) return "restaurant";
+      return "service";
+    }
+
+    function inferIsTipped() {
+      if (typeof definition.isTipped === "boolean") {
+        return definition.isTipped;
+      }
+
+      return hasTag("tips");
+    }
+
+    function inferTipModel(isTipped) {
+      if (typeof definition.tipModel === "string" && definition.tipModel.trim()) {
+        return definition.tipModel.trim();
+      }
+
+      if (!isTipped) return "none";
+      if (hasTag("bar")) return "bar";
+      if (hasTag("outdoors") || hasTag("tourism")) return "delivery";
+      return "service";
+    }
+
+    function inferPayModel() {
+      if (typeof definition.payModel === "string" && definition.payModel.trim()) {
+        return definition.payModel.trim();
+      }
+
+      return "perShift";
+    }
+
+    function normalizeToneTags(rawToneTags) {
+      if (!Array.isArray(rawToneTags)) {
+        return [];
+      }
+
+      return rawToneTags.map(function (tag) {
+        return String(tag || "").trim();
+      }).filter(function (tag) {
+        return Boolean(tag);
+      });
+    }
+
+    var isTipped = inferIsTipped();
 
     return {
       id: definition.id || jobId,
@@ -303,7 +361,12 @@
       payPerLevel: Math.max(0, Math.floor(definition.payPerLevel || 10)),
       promotionGain: Math.max(1, Math.floor(definition.promotionGain || 10)),
       unlockRequires: unlockRequirement || undefined,
-      tags: normalizeJobTags(definition.tags),
+      tags: tags,
+      isTipped: isTipped,
+      tipModel: inferTipModel(isTipped),
+      payModel: inferPayModel(),
+      venueType: inferVenueType(),
+      toneTags: normalizeToneTags(definition.toneTags),
       careerLadder: normalizeCareerLadder(definition.careerLadder),
       perks: normalizeJobPerks(definition.perks)
     };
@@ -519,6 +582,28 @@
     }
 
     return normalizeJobPerks(JOBS[jobId].perks);
+  }
+
+  function getJobMessagingProfile(jobId) {
+    var definition = JOBS[jobId];
+
+    if (!definition) {
+      return {
+        isTipped: false,
+        tipModel: "none",
+        payModel: "perShift",
+        venueType: "service",
+        toneTags: []
+      };
+    }
+
+    return {
+      isTipped: Boolean(definition.isTipped),
+      tipModel: definition.tipModel || "none",
+      payModel: definition.payModel || "perShift",
+      venueType: definition.venueType || "service",
+      toneTags: Array.isArray(definition.toneTags) ? definition.toneTags.slice() : []
+    };
   }
 
   function getActiveJobPerks(state) {
@@ -851,6 +936,13 @@
         SHIFT_ENERGY_MULT_MAX,
         1
       ),
+      venueTypes: Array.isArray(shift.venueTypes)
+        ? shift.venueTypes.map(function (venueType) {
+          return String(venueType || "").trim();
+        }).filter(function (venueType) {
+          return Boolean(venueType);
+        })
+        : [],
       logTemplates: normalizeShiftLogTemplates(shift.logTemplates)
     };
   }
@@ -884,6 +976,7 @@
         tipChanceBonus: 0.04,
         tipAmountMultiplier: 1.06,
         energyCostMultiplier: 1.0,
+        venueTypes: ["restaurant", "retail", "service"],
         logTemplates: [
           "You worked a lunch rush shift at {job}.",
           "You handled a crowded midday shift at {job}."
@@ -900,6 +993,7 @@
         tipChanceBonus: 0.08,
         tipAmountMultiplier: 1.14,
         energyCostMultiplier: 1.1,
+        venueTypes: ["restaurant", "bar", "service"],
         logTemplates: [
           "You worked a packed dinner shift at {job}.",
           "You pushed through a busy evening shift at {job}."
@@ -916,6 +1010,7 @@
         tipChanceBonus: 0.12,
         tipAmountMultiplier: 1.24,
         energyCostMultiplier: 1.22,
+        venueTypes: ["restaurant", "bar", "retail", "service"],
         logTemplates: [
           "You worked a weekend surge shift at {job}.",
           "Saturday crowds packed your shift at {job}."
@@ -932,6 +1027,7 @@
         tipChanceBonus: 0.2,
         tipAmountMultiplier: 1.35,
         energyCostMultiplier: 1.45,
+        venueTypes: ["restaurant", "bar", "service", "manual_labor", "transport"],
         logTemplates: [
           "You pulled a full double shift at {job}.",
           "You covered a double shift at {job} and felt every hour."
@@ -948,6 +1044,7 @@
         tipChanceBonus: 0,
         tipAmountMultiplier: 0.86,
         energyCostMultiplier: 0.85,
+        venueTypes: ["restaurant", "retail", "service", "manual_labor", "transport"],
         logTemplates: [
           "You worked a slow shift at {job}.",
           "Traffic stayed light all shift at {job}."
@@ -964,6 +1061,7 @@
         tipChanceBonus: 0,
         tipAmountMultiplier: 0.9,
         energyCostMultiplier: 1.2,
+        venueTypes: ["restaurant", "bar", "service", "retail", "transport"],
         logTemplates: [
           "You worked a disrupted shift at {job} after ferry delays.",
           "A rough day disrupted your shift flow at {job}."
@@ -984,6 +1082,7 @@
         tipChanceBonus: 0.14,
         tipAmountMultiplier: 1.28,
         energyCostMultiplier: 1.24,
+        venueTypes: ["restaurant", "bar", "service", "transport"],
         logTemplates: [
           "You worked a ferry surge shift at {job} as day-trippers poured in.",
           "Ferry arrivals flooded town during your shift at {job}."
@@ -1004,6 +1103,7 @@
         tipChanceBonus: 0.2,
         tipAmountMultiplier: 1.5,
         energyCostMultiplier: 1.3,
+        venueTypes: ["restaurant", "bar", "service", "transport"],
         logTemplates: [
           "You worked a tuna tournament shift at {job} with the docks buzzing.",
           "Tournament traffic turned your shift at {job} into a sprint."
@@ -1020,6 +1120,7 @@
         tipChanceBonus: 0.25,
         tipAmountMultiplier: 1.6,
         energyCostMultiplier: 1.35,
+        venueTypes: ["restaurant", "bar", "service", "transport"],
         logTemplates: [
           "You worked a race week surge shift at {job} with the harbor packed.",
           "Race week crowds made your shift at {job} one of the biggest yet."
@@ -1036,6 +1137,7 @@
         tipChanceBonus: 0.22,
         tipAmountMultiplier: 1.48,
         energyCostMultiplier: 1.3,
+        venueTypes: ["restaurant", "bar", "service", "transport"],
         logTemplates: [
           "You worked a holiday weekend shift at {job} with nonstop crowds.",
           "The holiday rush at {job} barely slowed all shift."
@@ -1053,6 +1155,7 @@
         tipChanceBonus: 0.04,
         tipAmountMultiplier: 1.0,
         energyCostMultiplier: 0.9,
+        venueTypes: ["restaurant", "retail", "service", "manual_labor", "transport"],
         logTemplates: [
           "You worked a shoulder-season shift at {job} and town felt steadier.",
           "Shoulder-season traffic gave your shift at {job} a calmer rhythm."
@@ -1069,6 +1172,7 @@
         tipChanceBonus: 0,
         tipAmountMultiplier: 0.82,
         energyCostMultiplier: 1.05,
+        venueTypes: ["restaurant", "retail", "service", "manual_labor", "transport"],
         logTemplates: [
           "You worked a winter isolation shift at {job} in the cold quiet.",
           "Winter silence settled in during your shift at {job}."
@@ -1142,12 +1246,19 @@
 
   function pickShiftTypeForState(state, jobId) {
     var tags = getJobTags(jobId || (state && state.jobs ? state.jobs.activeJobId : ""));
+    var profile = getJobMessagingProfile(jobId || (state && state.jobs ? state.jobs.activeJobId : ""));
     var context = {
       jobId: jobId,
-      jobTags: tags
+      jobTags: tags,
+      profile: profile
     };
     var eligible = SHIFT_TYPES.filter(function (shift) {
       try {
+        if (Array.isArray(shift.venueTypes) && shift.venueTypes.length > 0) {
+          if (shift.venueTypes.indexOf(profile.venueType) < 0) {
+            return false;
+          }
+        }
         return Boolean(shift.when(state, context));
       } catch (error) {
         return false;
@@ -1494,6 +1605,7 @@
     getEntryRoleTitle: getEntryRoleTitle,
     getJobTags: getJobTags,
     getJobPerks: getJobPerks,
+    getJobMessagingProfile: getJobMessagingProfile,
     getActiveJobPerks: getActiveJobPerks,
     getPayForLevel: getPayForLevel,
     getShiftTypeDefinitions: getShiftTypeDefinitions,

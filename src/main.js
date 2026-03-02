@@ -429,7 +429,28 @@
     return tags.indexOf(tag) >= 0;
   }
 
+  function getJobMessagingProfile(jobId) {
+    if (jobs && typeof jobs.getJobMessagingProfile === "function") {
+      return jobs.getJobMessagingProfile(jobId);
+    }
+
+    return {
+      isTipped: hasJobTag(jobId, "tips"),
+      tipModel: hasJobTag(jobId, "tips") ? "service" : "none",
+      payModel: "perShift",
+      venueType: "service",
+      toneTags: []
+    };
+  }
+
+  function formatPayUnit(payModel) {
+    if (payModel === "hourly") return "per hour";
+    if (payModel === "commission") return "in commission";
+    return "per shift";
+  }
+
   function tryGrantWorkTips(jobId, lifestyleId) {
+    var profile = getJobMessagingProfile(jobId);
     var locals = stateApi.getLocalRelationship(state);
     var summerPeople = stateApi.getSummerPeopleRelationship
       ? stateApi.getSummerPeopleRelationship(state)
@@ -464,7 +485,7 @@
     var amountMultiplier;
     var amount;
 
-    if (!hasJobTag(jobId, "tips")) {
+    if (!profile.isTipped || profile.tipModel === "none") {
       return 0;
     }
 
@@ -523,6 +544,7 @@
     var townRepGain = 2;
     var barRepGain = 0;
     var lifestyleId = getLifestyleId();
+    var profile;
     var i;
 
     if (!guardCoreRuntimeState("work")) {
@@ -551,6 +573,8 @@
       render();
       return;
     }
+
+    profile = getJobMessagingProfile(workResult.jobId);
 
     needs.applyActionNeeds(state, "work");
     if (
@@ -596,14 +620,22 @@
     } else if (payAdjustment < 0) {
       log("Today's conditions cut into your shift pay. (-$" + Math.abs(payAdjustment) + ")");
     }
-    log("You worked your shift and earned $" + totalPay + ".");
+    log("You worked your shift at " + workResult.jobName + " and earned $" + totalPay + ".");
     tipAmount = tryGrantWorkTips(workResult.jobId, lifestyleId);
     if (tipAmount > 0) {
-      log("You received $" + tipAmount + " in tips.");
+      if (profile.tipModel === "bar") {
+        log("Guests left you $" + tipAmount + " behind the bar.");
+      } else if (profile.tipModel === "delivery") {
+        log("Clients added a $" + tipAmount + " bonus for fast service.");
+      } else {
+        log("You received $" + tipAmount + " in tips.");
+      }
+    } else if (!profile.isTipped && staffBonus > 0) {
+      log("Good word-of-mouth helped your crew line up more work.");
     }
 
     for (i = 0; i < workResult.promotions.length; i += 1) {
-      log("Your pay is now $" + workResult.promotions[i].pay + " per shift.");
+      log("Your pay is now $" + workResult.promotions[i].pay + " " + formatPayUnit(profile.payModel) + ".");
       log("You were promoted to Level " + workResult.promotions[i].level + " at " + workResult.jobName + "!");
     }
     for (i = 0; i < workResult.unlockedJobIds.length; i += 1) {
@@ -644,7 +676,11 @@
 
     state.player.money -= mealCost;
     applyActionNeedsWithLifestyle("eat", "eatRestore", lifestyleId);
-    log("You bought a meal for $" + mealCost + " and feel more energized.");
+    if (state.player.needs.hunger >= 90) {
+      log("You grabbed a light meal for $" + mealCost + " and stayed fueled.");
+    } else {
+      log("You bought a meal for $" + mealCost + " and feel more energized.");
+    }
     render();
   }
 
@@ -810,7 +846,7 @@
       state.jobs.pendingJobStartDay = pendingStartDay;
     }
 
-    log("You sleep and wake up to a new day.");
+    log("You sleep through the night and wake to a new island day.");
 
     housing.chargeWeeklyRentIfDue(state, log);
     if (events && typeof events.runDailyEvent === "function") {
