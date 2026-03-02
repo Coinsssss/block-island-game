@@ -236,6 +236,94 @@
       return true;
     }
 
+    function getEconomyReportViewerElements() {
+      if (!global.document) return null;
+      return {
+        modal: global.document.getElementById("economy-report-modal"),
+        textarea: global.document.getElementById("economy-report-json"),
+        copyButton: global.document.getElementById("economy-report-copy-btn"),
+        closeButton: global.document.getElementById("economy-report-close-btn")
+      };
+    }
+
+    function closeEconomyReportViewer() {
+      var elements = getEconomyReportViewerElements();
+      if (!elements || !elements.modal) return;
+      elements.modal.hidden = true;
+    }
+
+    function copyTextToClipboard(value) {
+      if (global.navigator && global.navigator.clipboard && typeof global.navigator.clipboard.writeText === "function") {
+        return global.navigator.clipboard.writeText(value);
+      }
+
+      return new Promise(function (resolve, reject) {
+        var elements = getEconomyReportViewerElements();
+        if (!elements || !elements.textarea) {
+          reject(new Error("Viewer textarea unavailable for fallback copy."));
+          return;
+        }
+        elements.textarea.focus();
+        elements.textarea.select();
+        try {
+          if (global.document && typeof global.document.execCommand === "function" && global.document.execCommand("copy")) {
+            resolve();
+            return;
+          }
+        } catch (error) {
+          reject(error);
+          return;
+        }
+        reject(new Error("Clipboard copy command failed."));
+      });
+    }
+
+    function openEconomyReportViewer() {
+      var report = global.__lastEconomyAuditReport;
+      var elements = getEconomyReportViewerElements();
+      if (!report) {
+        onLog("[DEV][ECON-AUDIT] No economy report available yet. Run the audit first.");
+        return false;
+      }
+      if (!elements || !elements.modal || !elements.textarea) {
+        onLog("[DEV][ECON-AUDIT] Report viewer UI is unavailable.");
+        return false;
+      }
+
+      elements.textarea.value = JSON.stringify(report, null, 2);
+      elements.modal.hidden = false;
+      if (elements.copyButton) {
+        elements.copyButton.textContent = "Copy to Clipboard";
+      }
+      if (!elements.modal.getAttribute("data-initialized")) {
+        if (elements.closeButton) {
+          elements.closeButton.addEventListener("click", closeEconomyReportViewer);
+        }
+        if (elements.copyButton) {
+          elements.copyButton.addEventListener("click", function () {
+            copyTextToClipboard(elements.textarea.value).then(function () {
+              elements.copyButton.textContent = "Copied!";
+            }).catch(function (error) {
+              onLog("[DEV][ECON-AUDIT] Copy failed: " + (error && error.message ? error.message : String(error)));
+              if (global.console && typeof global.console.error === "function") {
+                global.console.error("[DEV][ECON-AUDIT] Copy failed", error);
+              }
+            });
+          });
+        }
+        elements.modal.addEventListener("click", function (event) {
+          if (event.target === elements.modal) {
+            closeEconomyReportViewer();
+          }
+        });
+        elements.modal.setAttribute("data-initialized", "true");
+      }
+      elements.textarea.focus();
+      elements.textarea.select();
+      onLog("[DEV][ECON-AUDIT] Opened economy report viewer.");
+      return true;
+    }
+
     function runSmokeTestsAction(state) {
       var report;
 
@@ -593,9 +681,17 @@
       var warnFlags = [];
       var summary = null;
       var firstError = null;
+      var startedAtMs = Date.now();
+      var progressInterval = options && typeof options.progressInterval === "number"
+        ? Math.max(1, Math.floor(options.progressInterval))
+        : 25;
 
       function auditLog(line) {
-        onLog("[DEV][ECON] " + line);
+        onLog("[DEV][ECON-AUDIT] " + line);
+      }
+
+      function formatDurationMs(durationMs) {
+        return (durationMs / 1000).toFixed(1) + "s";
       }
 
       function mean(values) {
@@ -766,15 +862,24 @@
         };
       }
 
+      function buildWorstCases(limit) {
+        return runs.slice().sort(function (a, b) {
+          if (a.povertyLoop !== b.povertyLoop) return a.povertyLoop ? -1 : 1;
+          if (a.finalMoney !== b.finalMoney) return a.finalMoney - b.finalMoney;
+          return a.averageDailySurplus - b.averageDailySurplus;
+        }).slice(0, Math.max(1, limit || 3));
+      }
+
       onSetActionRunning("run_economy_simulation_audit", true);
-      auditLog("Starting economy audit (" + simulationRuns + " runs x " + simulationDays + " days)...");
+      auditLog("Starting economy audit...");
+      auditLog("Config: " + simulationRuns + " runs x " + simulationDays + " days.");
       if (typeof onStateChanged === "function") onStateChanged();
 
       try {
         for (var runIndex = 0; runIndex < simulationRuns; runIndex += 1) {
           runSingleSimulation(runIndex);
-          if ((runIndex + 1) % 25 === 0 || runIndex + 1 === simulationRuns) {
-            auditLog("Progress: " + (runIndex + 1) + "/" + simulationRuns + " ...");
+          if ((runIndex + 1) % progressInterval === 0 || runIndex + 1 === simulationRuns) {
+            auditLog("Progress: " + (runIndex + 1) + "/" + simulationRuns + " (elapsed " + formatDurationMs(Date.now() - startedAtMs) + ").");
             if (global.console) {
               global.console.info("[DEV][ECON] Progress", { completedRuns: runIndex + 1, totalRuns: simulationRuns });
             }
@@ -789,14 +894,17 @@
           aggregate: summary,
           runs: runs
         };
+        var worstCases = buildWorstCases(3);
+        var worstCaseSummary = worstCases.map(function (run) {
+          return "#" + run.run + "($" + run.finalMoney.toFixed(2) + ",surplus=" + run.averageDailySurplus.toFixed(2) + ",poverty=" + (run.povertyLoop ? "Y" : "N") + ")";
+        }).join("; ");
 
-        auditLog("Summary: runs=" + summary.runCount + ", days/run=" + summary.daysPerRun + ", avg final money=$" + summary.averageFinalMoney.toFixed(2) + ", median final money=$" + summary.medianFinalMoney.toFixed(2) + ".");
-        auditLog("Avg daily surplus=" + summary.averageDailySurplus.toFixed(2) + ", negative money runs=" + summary.negativeMoneyRatePct.toFixed(1) + "%, poverty loop runs=" + summary.povertyLoopRatePct.toFixed(1) + "%.");
-        auditLog("Avg first housing upgrade=" + (summary.averageTimeToFirstHousingUpgrade < 0 ? "none" : summary.averageTimeToFirstHousingUpgrade.toFixed(1) + " days") + ", upgraded within 90 days=" + summary.upgradedWithin90DaysPct.toFixed(1) + "%.");
-        auditLog("Avg rent burden=" + summary.averageRentBurdenPct.toFixed(2) + "%, FAIL=" + summary.failCount + ", WARN=" + summary.warnCount + ".");
+        auditLog("Summary: runs=" + summary.runCount + ", avg final=$" + summary.averageFinalMoney.toFixed(2) + ", median=$" + summary.medianFinalMoney.toFixed(2) + ", avg surplus=" + summary.averageDailySurplus.toFixed(2) + ".");
+        auditLog("Flags: negative=" + summary.negativeMoneyRatePct.toFixed(1) + "%, poverty=" + summary.povertyLoopRatePct.toFixed(1) + "%, rent burden=" + summary.averageRentBurdenPct.toFixed(2) + "%, FAIL=" + summary.failCount + ", WARN=" + summary.warnCount + ".");
+        auditLog("Worst runs: " + worstCaseSummary + ".");
 
         if (global.console && typeof global.console.groupCollapsed === "function") {
-          global.console.groupCollapsed("[DEV][ECON] Economy audit report");
+          global.console.groupCollapsed("[DEV][ECON-AUDIT] Economy audit report");
           global.console.info("Aggregate", summary);
           global.console.table(runs.map(function (run) {
             return {
@@ -814,16 +922,16 @@
         firstError = error;
         auditLog("ERROR: " + (error && error.message ? error.message : String(error)));
         if (global.console && typeof global.console.error === "function") {
-          global.console.error("[DEV][ECON] Audit failed", error, { partialRuns: runs });
+          global.console.error("[DEV][ECON-AUDIT] ERROR", error && error.stack ? error.stack : error, { partialRuns: runs });
         }
       } finally {
         restoreState(state, originalSnapshot);
         if (ns.rng && typeof ns.rng.reset === "function") ns.rng.reset();
 
         if (JSON.stringify(state) !== restoreFingerprint) {
-          auditLog("WARN: state restore fingerprint mismatch after economy audit.");
+          auditLog("State restore integrity: FAIL (fingerprint mismatch).");
         } else {
-          auditLog("State restore integrity confirmed.");
+          auditLog("State restore integrity: PASS.");
         }
 
         onSetActionRunning("run_economy_simulation_audit", false);
@@ -910,14 +1018,8 @@
         return auditOk;
       }
 
-      if (actionId === "download_economy_report") {
-        if (!global.__lastEconomyAuditReport) {
-          onLog("[DEV][ECON] No economy report available yet. Run the audit first.");
-          return false;
-        }
-        downloadJsonFile("block-island-economy-audit-report.json", global.__lastEconomyAuditReport);
-        onLog("[DEV][ECON] Downloaded economy report JSON.");
-        return true;
+      if (actionId === "view_economy_report") {
+        return openEconomyReportViewer();
       }
 
       if (actionId === "export_message_log") {
