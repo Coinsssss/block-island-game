@@ -1207,6 +1207,9 @@
         tipChanceBonus: shift.tipChanceBonus,
         tipAmountMultiplier: shift.tipAmountMultiplier,
         energyCostMultiplier: shift.energyCostMultiplier,
+        venueTypes: Array.isArray(shift.venueTypes)
+          ? shift.venueTypes.slice()
+          : [],
         logTemplates: Array.isArray(shift.logTemplates)
           ? shift.logTemplates.slice()
           : []
