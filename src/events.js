@@ -564,7 +564,7 @@
           return {
             logLines: [
               "Town feels quieter than usual today.",
-              "Tip income may come in a little lighter."
+              "Shift income may come in a little lighter."
             ],
             effectsApplied: {
               tipChanceBonus: -0.08,
@@ -607,7 +607,7 @@
       },
       {
         id: "generous_regular",
-        title: "Generous Regular",
+        title: "Generous Local",
         weight: 1,
         when: function (state) {
           return stateApi.getLocalRelationship(state) >= 20;
@@ -1260,7 +1260,7 @@
           return {
             logLines: [
               "Storm clouds roll over and most people head inside.",
-              "Energy dips, and tip-heavy shifts may run softer."
+              "Energy dips, and service shifts may run softer."
             ],
             effectsApplied: {
               mood: moodDelta,
@@ -1514,7 +1514,7 @@
       },
       {
         id: "local_regular_recognizes_you",
-        title: "Local Regular Recognizes You",
+        title: "Local Neighbor Recognizes You",
         weight: 10,
         when: function (state) {
           return getLocalsRelationship(state) >= 20;
@@ -1535,7 +1535,7 @@
 
           return {
             logLines: [
-              "A local regular greets you by name and puts in a good word.",
+              "A local neighbor greets you by name and puts in a good word.",
               "Your next shift should go a little smoother."
             ],
             effectsApplied: {
@@ -1548,7 +1548,7 @@
       },
       {
         id: "summer_people_tip_big",
-        title: "Summer People Tip Big",
+        title: "Summer People Spend Big",
         weight: 5,
         when: function (state) {
           return getSummerPeopleRelationship(state) >= 25;
@@ -1568,7 +1568,7 @@
           return {
             logLines: [
               "Visitors are in a generous mood today.",
-              "If you work next, tip totals could spike."
+              "If you work next, customer spend could spike."
             ],
             effectsApplied: {
               tipAmountMult: 1.28
