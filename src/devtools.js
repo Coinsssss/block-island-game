@@ -192,6 +192,7 @@
     var syncWorldSeasonFromTime = hooks && typeof hooks.syncWorldSeasonFromTime === "function" ?
       hooks.syncWorldSeasonFromTime :
       null;
+    var reportViewerElements = null;
 
     function deepClone(value) {
       return JSON.parse(JSON.stringify(value));
@@ -236,20 +237,103 @@
       return true;
     }
 
-    function getEconomyReportViewerElements() {
-      if (!global.document) return null;
-      return {
-        modal: global.document.getElementById("economy-report-modal"),
-        textarea: global.document.getElementById("economy-report-json"),
-        copyButton: global.document.getElementById("economy-report-copy-btn"),
-        closeButton: global.document.getElementById("economy-report-close-btn")
-      };
+    function destroyEconomyReportViewer() {
+      if (!reportViewerElements || !reportViewerElements.modal) return;
+      reportViewerElements.modal.style.display = "none";
+      reportViewerElements.modal.style.pointerEvents = "none";
+      if (reportViewerElements.modal.parentNode) {
+        reportViewerElements.modal.parentNode.removeChild(reportViewerElements.modal);
+      }
+      reportViewerElements = null;
     }
 
-    function closeEconomyReportViewer() {
-      var elements = getEconomyReportViewerElements();
-      if (!elements || !elements.modal) return;
-      elements.modal.hidden = true;
+    function ensureEconomyReportViewerElements() {
+      var modal;
+      var dialog;
+      var heading;
+      var textarea;
+      var actions;
+      var copyButton;
+      var closeButton;
+
+      if (!global.document || !global.document.body) return null;
+      if (reportViewerElements && reportViewerElements.modal) {
+        return reportViewerElements;
+      }
+
+      modal = global.document.createElement("div");
+      modal.style.position = "fixed";
+      modal.style.inset = "0";
+      modal.style.zIndex = "9999";
+      modal.style.background = "rgba(5, 8, 20, 0.84)";
+      modal.style.display = "none";
+      modal.style.pointerEvents = "none";
+      modal.style.alignItems = "center";
+      modal.style.justifyContent = "center";
+      modal.style.padding = "16px";
+
+      dialog = global.document.createElement("div");
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-modal", "true");
+      dialog.setAttribute("aria-label", "Economy audit report viewer");
+      dialog.style.width = "min(960px, 96vw)";
+      dialog.style.maxHeight = "86vh";
+      dialog.style.display = "flex";
+      dialog.style.flexDirection = "column";
+      dialog.style.gap = "12px";
+      dialog.style.padding = "16px";
+      dialog.style.borderRadius = "12px";
+      dialog.style.border = "1px solid rgba(163, 191, 250, 0.35)";
+      dialog.style.background = "rgba(10, 18, 36, 0.96)";
+
+      heading = global.document.createElement("h3");
+      heading.textContent = "Economy Audit Report";
+      heading.style.margin = "0";
+
+      textarea = global.document.createElement("textarea");
+      textarea.readOnly = true;
+      textarea.spellcheck = false;
+      textarea.style.width = "100%";
+      textarea.style.minHeight = "280px";
+      textarea.style.maxHeight = "56vh";
+      textarea.style.resize = "vertical";
+      textarea.style.fontFamily = '"Fira Code", "Source Code Pro", monospace';
+
+      actions = global.document.createElement("div");
+      actions.style.display = "flex";
+      actions.style.justifyContent = "flex-end";
+      actions.style.gap = "8px";
+
+      copyButton = global.document.createElement("button");
+      copyButton.type = "button";
+      copyButton.textContent = "Copy to Clipboard";
+
+      closeButton = global.document.createElement("button");
+      closeButton.type = "button";
+      closeButton.textContent = "Close";
+
+      actions.appendChild(copyButton);
+      actions.appendChild(closeButton);
+      dialog.appendChild(heading);
+      dialog.appendChild(textarea);
+      dialog.appendChild(actions);
+      modal.appendChild(dialog);
+      global.document.body.appendChild(modal);
+
+      closeButton.addEventListener("click", destroyEconomyReportViewer);
+      modal.addEventListener("click", function (event) {
+        if (event.target === modal) {
+          destroyEconomyReportViewer();
+        }
+      });
+
+      reportViewerElements = {
+        modal: modal,
+        textarea: textarea,
+        copyButton: copyButton
+      };
+
+      return reportViewerElements;
     }
 
     function copyTextToClipboard(value) {
@@ -258,7 +342,7 @@
       }
 
       return new Promise(function (resolve, reject) {
-        var elements = getEconomyReportViewerElements();
+        var elements = reportViewerElements;
         if (!elements || !elements.textarea) {
           reject(new Error("Viewer textarea unavailable for fallback copy."));
           return;
@@ -280,7 +364,8 @@
 
     function openEconomyReportViewer() {
       var report = global.__lastEconomyAuditReport;
-      var elements = getEconomyReportViewerElements();
+      var elements = ensureEconomyReportViewerElements();
+
       if (!report) {
         onLog("[DEV][ECON-AUDIT] No economy report available yet. Run the audit first.");
         return false;
@@ -291,33 +376,21 @@
       }
 
       elements.textarea.value = JSON.stringify(report, null, 2);
-      elements.modal.hidden = false;
-      if (elements.copyButton) {
-        elements.copyButton.textContent = "Copy to Clipboard";
-      }
-      if (!elements.modal.getAttribute("data-initialized")) {
-        if (elements.closeButton) {
-          elements.closeButton.addEventListener("click", closeEconomyReportViewer);
-        }
-        if (elements.copyButton) {
-          elements.copyButton.addEventListener("click", function () {
-            copyTextToClipboard(elements.textarea.value).then(function () {
-              elements.copyButton.textContent = "Copied!";
-            }).catch(function (error) {
-              onLog("[DEV][ECON-AUDIT] Copy failed: " + (error && error.message ? error.message : String(error)));
-              if (global.console && typeof global.console.error === "function") {
-                global.console.error("[DEV][ECON-AUDIT] Copy failed", error);
-              }
-            });
+      elements.modal.style.display = "flex";
+      elements.modal.style.pointerEvents = "auto";
+      elements.copyButton.textContent = "Copy to Clipboard";
+
+      if (!elements.copyButton.getAttribute("data-initialized")) {
+        elements.copyButton.addEventListener("click", function () {
+          copyTextToClipboard(elements.textarea.value).then(function () {
+            elements.copyButton.textContent = "Copied!";
+          }).catch(function (error) {
+            onLog("[DEV][ECON-AUDIT] Copy failed: " + (error && error.message ? error.message : String(error)));
           });
-        }
-        elements.modal.addEventListener("click", function (event) {
-          if (event.target === elements.modal) {
-            closeEconomyReportViewer();
-          }
         });
-        elements.modal.setAttribute("data-initialized", "true");
+        elements.copyButton.setAttribute("data-initialized", "true");
       }
+
       elements.textarea.focus();
       elements.textarea.select();
       onLog("[DEV][ECON-AUDIT] Opened economy report viewer.");
@@ -681,17 +754,9 @@
       var warnFlags = [];
       var summary = null;
       var firstError = null;
-      var startedAtMs = Date.now();
-      var progressInterval = options && typeof options.progressInterval === "number"
-        ? Math.max(1, Math.floor(options.progressInterval))
-        : 25;
 
       function auditLog(line) {
-        onLog("[DEV][ECON-AUDIT] " + line);
-      }
-
-      function formatDurationMs(durationMs) {
-        return (durationMs / 1000).toFixed(1) + "s";
+        onLog("[DEV][ECON] " + line);
       }
 
       function mean(values) {
@@ -862,24 +927,15 @@
         };
       }
 
-      function buildWorstCases(limit) {
-        return runs.slice().sort(function (a, b) {
-          if (a.povertyLoop !== b.povertyLoop) return a.povertyLoop ? -1 : 1;
-          if (a.finalMoney !== b.finalMoney) return a.finalMoney - b.finalMoney;
-          return a.averageDailySurplus - b.averageDailySurplus;
-        }).slice(0, Math.max(1, limit || 3));
-      }
-
       onSetActionRunning("run_economy_simulation_audit", true);
-      auditLog("Starting economy audit...");
-      auditLog("Config: " + simulationRuns + " runs x " + simulationDays + " days.");
+      auditLog("Starting economy audit (" + simulationRuns + " runs x " + simulationDays + " days)...");
       if (typeof onStateChanged === "function") onStateChanged();
 
       try {
         for (var runIndex = 0; runIndex < simulationRuns; runIndex += 1) {
           runSingleSimulation(runIndex);
-          if ((runIndex + 1) % progressInterval === 0 || runIndex + 1 === simulationRuns) {
-            auditLog("Progress: " + (runIndex + 1) + "/" + simulationRuns + " (elapsed " + formatDurationMs(Date.now() - startedAtMs) + ").");
+          if ((runIndex + 1) % 25 === 0 || runIndex + 1 === simulationRuns) {
+            auditLog("Progress: " + (runIndex + 1) + "/" + simulationRuns + " ...");
             if (global.console) {
               global.console.info("[DEV][ECON] Progress", { completedRuns: runIndex + 1, totalRuns: simulationRuns });
             }
@@ -894,17 +950,14 @@
           aggregate: summary,
           runs: runs
         };
-        var worstCases = buildWorstCases(3);
-        var worstCaseSummary = worstCases.map(function (run) {
-          return "#" + run.run + "($" + run.finalMoney.toFixed(2) + ",surplus=" + run.averageDailySurplus.toFixed(2) + ",poverty=" + (run.povertyLoop ? "Y" : "N") + ")";
-        }).join("; ");
 
-        auditLog("Summary: runs=" + summary.runCount + ", avg final=$" + summary.averageFinalMoney.toFixed(2) + ", median=$" + summary.medianFinalMoney.toFixed(2) + ", avg surplus=" + summary.averageDailySurplus.toFixed(2) + ".");
-        auditLog("Flags: negative=" + summary.negativeMoneyRatePct.toFixed(1) + "%, poverty=" + summary.povertyLoopRatePct.toFixed(1) + "%, rent burden=" + summary.averageRentBurdenPct.toFixed(2) + "%, FAIL=" + summary.failCount + ", WARN=" + summary.warnCount + ".");
-        auditLog("Worst runs: " + worstCaseSummary + ".");
+        auditLog("Summary: runs=" + summary.runCount + ", days/run=" + summary.daysPerRun + ", avg final money=$" + summary.averageFinalMoney.toFixed(2) + ", median final money=$" + summary.medianFinalMoney.toFixed(2) + ".");
+        auditLog("Avg daily surplus=" + summary.averageDailySurplus.toFixed(2) + ", negative money runs=" + summary.negativeMoneyRatePct.toFixed(1) + "%, poverty loop runs=" + summary.povertyLoopRatePct.toFixed(1) + "%.");
+        auditLog("Avg first housing upgrade=" + (summary.averageTimeToFirstHousingUpgrade < 0 ? "none" : summary.averageTimeToFirstHousingUpgrade.toFixed(1) + " days") + ", upgraded within 90 days=" + summary.upgradedWithin90DaysPct.toFixed(1) + "%.");
+        auditLog("Avg rent burden=" + summary.averageRentBurdenPct.toFixed(2) + "%, FAIL=" + summary.failCount + ", WARN=" + summary.warnCount + ".");
 
         if (global.console && typeof global.console.groupCollapsed === "function") {
-          global.console.groupCollapsed("[DEV][ECON-AUDIT] Economy audit report");
+          global.console.groupCollapsed("[DEV][ECON] Economy audit report");
           global.console.info("Aggregate", summary);
           global.console.table(runs.map(function (run) {
             return {
@@ -922,16 +975,16 @@
         firstError = error;
         auditLog("ERROR: " + (error && error.message ? error.message : String(error)));
         if (global.console && typeof global.console.error === "function") {
-          global.console.error("[DEV][ECON-AUDIT] ERROR", error && error.stack ? error.stack : error, { partialRuns: runs });
+          global.console.error("[DEV][ECON] Audit failed", error, { partialRuns: runs });
         }
       } finally {
         restoreState(state, originalSnapshot);
         if (ns.rng && typeof ns.rng.reset === "function") ns.rng.reset();
 
         if (JSON.stringify(state) !== restoreFingerprint) {
-          auditLog("State restore integrity: FAIL (fingerprint mismatch).");
+          auditLog("WARN: state restore fingerprint mismatch after economy audit.");
         } else {
-          auditLog("State restore integrity: PASS.");
+          auditLog("State restore integrity confirmed.");
         }
 
         onSetActionRunning("run_economy_simulation_audit", false);
@@ -948,6 +1001,7 @@
       var message;
 
       if (!isDevModeEnabled()) {
+        destroyEconomyReportViewer();
         return false;
       }
 
