@@ -11,6 +11,7 @@
   var devtools = ns.devtools;
 
   var elements = {};
+  var devActionButtonById = {};
   var fallbackRequirements = {
     money: 3000,
     reputation: 20
@@ -597,7 +598,8 @@
   }
 
   function renderLog(state) {
-    var recent = state.log.slice(-24).reverse();
+    var sourceLog = Array.isArray(state.logRendered) ? state.logRendered : state.log;
+    var recent = (Array.isArray(sourceLog) ? sourceLog : []).slice(-24).reverse();
     var seenDedupeEntries = {};
     var rendered = [];
 
@@ -805,6 +807,27 @@
     uiState.lastActionResult = summary;
   }
 
+
+  function setDevActionRunning(actionId, isRunning) {
+    var button = devActionButtonById[actionId];
+    if (!button) return;
+
+    if (isRunning) {
+      button.disabled = true;
+      button.setAttribute("data-running", "true");
+      if (!button.getAttribute("data-default-label")) {
+        button.setAttribute("data-default-label", button.textContent);
+      }
+      button.textContent = button.getAttribute("data-default-label") + " (Running...)";
+      return;
+    }
+
+    button.removeAttribute("data-running");
+    if (button.getAttribute("data-default-label")) {
+      button.textContent = button.getAttribute("data-default-label");
+    }
+    button.disabled = false;
+  }
   function initUI(handlers) {
     elements.leftColumn = document.querySelector(".left-column");
     elements.topDate = ensureElement("top-date-value");
@@ -972,6 +995,13 @@
     elements.devActionButtons = Array.prototype.slice.call(
       document.querySelectorAll("[data-dev-action]")
     );
+    devActionButtonById = {};
+    elements.devActionButtons.forEach(function (button) {
+      var actionId = button.getAttribute("data-dev-action");
+      if (!actionId) return;
+      devActionButtonById[actionId] = button;
+      button.setAttribute("data-default-label", button.textContent);
+    });
 
     elements.startJobSelect.innerHTML = "<option value=\"\">Select a starting job</option>";
     elements.switchJobSelect.innerHTML = "<option value=\"\">Select new job</option>";
@@ -1398,6 +1428,7 @@
   ns.ui = {
     initUI: initUI,
     renderUI: renderUI,
+    setDevActionRunning: setDevActionRunning,
     formatLogEntryForDisplay: getFriendlyLogEntry
   };
 })(window);

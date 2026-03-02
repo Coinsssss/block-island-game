@@ -98,6 +98,11 @@
         {
           onLog: log,
           onStateChanged: persistAndRenderFromDevTool,
+          onSetActionRunning: function (actionId, isRunning) {
+            if (ui && typeof ui.setDevActionRunning === "function") {
+              ui.setDevActionRunning(actionId, isRunning);
+            }
+          },
           runWorkAction: onWork,
           runEatAction: onEat,
           runSocializeAction: onSocialize,
