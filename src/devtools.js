@@ -306,55 +306,122 @@
     }
 
     function runMessageAuditAction(state, options) {
-      var iterations = options && typeof options.iterations === "number" ? Math.max(1, Math.floor(options.iterations)) : 50;
-      var originalSnapshot = deepClone(state);
+      var auditApi = ns.devMessageAudit;
       var jobsApi = ns.jobs;
-      var report = [];
-      var suspiciousWordsByVenue = {
-        manual_labor: [/\bbar\b/i, /\bbartend/i, /\bguest\b/i],
-        retail: [/\bdock\b/i, /\bdeck\b/i],
-        bar: [/\blawn\b/i, /\bmowing\b/i]
+      var housingApi = ns.housing;
+      var timeApi = ns.time;
+      var defaultOptions = auditApi && auditApi.DEFAULT_OPTIONS ? auditApi.DEFAULT_OPTIONS : {};
+      var settings = {
+        iterationsPerJob: options && typeof options.iterationsPerJob === "number"
+          ? Math.max(1, Math.floor(options.iterationsPerJob))
+          : (typeof defaultOptions.iterationsPerJob === "number" ? defaultOptions.iterationsPerJob : 50),
+        includeSeasonSweep: options && typeof options.includeSeasonSweep === "boolean"
+          ? options.includeSeasonSweep
+          : (typeof defaultOptions.includeSeasonSweep === "boolean" ? defaultOptions.includeSeasonSweep : true),
+        includeNeedsSweep: options && typeof options.includeNeedsSweep === "boolean"
+          ? options.includeNeedsSweep
+          : (typeof defaultOptions.includeNeedsSweep === "boolean" ? defaultOptions.includeNeedsSweep : true),
+        seasonSweepIterations: options && typeof options.seasonSweepIterations === "number"
+          ? Math.max(1, Math.floor(options.seasonSweepIterations))
+          : (typeof defaultOptions.seasonSweepIterations === "number" ? defaultOptions.seasonSweepIterations : 10),
+        needsSweepIterations: options && typeof options.needsSweepIterations === "number"
+          ? Math.max(1, Math.floor(options.needsSweepIterations))
+          : (typeof defaultOptions.needsSweepIterations === "number" ? defaultOptions.needsSweepIterations : 5)
       };
+      var originalSnapshot = deepClone(state);
+      var restoreFingerprint = JSON.stringify(originalSnapshot);
+      var catalog = auditApi && typeof auditApi.createMessageCatalog === "function"
+        ? auditApi.createMessageCatalog({ jobs: jobsApi, events: ns.events })
+        : [];
+      var jobIds;
+      var findings = [];
+      var messageCounts = {};
+      var summaryByJob = {};
 
-      function recordIssue(issues, rule, message) {
-        issues.push({ rule: rule, message: message });
+      function seasonIdFromIndex(index) {
+        if (timeApi && typeof timeApi.getSeasonId === "function") {
+          return timeApi.getSeasonId(index);
+        }
+        return ["spring", "summer", "fall", "winter"][index] || "spring";
       }
 
-      function detectIssues(profile, messages) {
-        var issues = [];
-        var venueRules = suspiciousWordsByVenue[profile.venueType] || [];
+      function pushFinding(jobId, jobName, finding, message, context) {
+        var key = jobId || "none";
 
-        messages.forEach(function (line) {
-          if (!profile.isTipped && /\btip|tips|tipped\b/i.test(line)) {
-            recordIssue(issues, "tip-text-on-non-tipped-job", line);
+        findings.push({
+          jobId: key,
+          jobName: jobName || "No Job",
+          severity: finding.severity,
+          ruleId: finding.ruleId,
+          details: finding.details,
+          message: message,
+          context: {
+            jobId: context.jobId || "",
+            venueType: context.venueType || "",
+            season: context.season || "",
+            needs: context.needs || { energy: 0, hunger: 0, social: 0 },
+            moneyDelta: context.moneyDelta || 0,
+            repDeltaTown: context.repDeltaTown || 0,
+            repDeltaBar: context.repDeltaBar || 0,
+            actionType: context.actionType || "",
+            rentDue: Boolean(context.rentDue)
           }
-          if (/\bper week\b/i.test(line) && /pay is now/i.test(line)) {
-            recordIssue(issues, "pay-unit-mismatch", line);
-          }
-          venueRules.forEach(function (pattern) {
-            if (pattern.test(line)) {
-              recordIssue(issues, "venue-reference-mismatch", line);
-            }
-          });
         });
 
-        return issues;
+        if (!summaryByJob[key]) {
+          summaryByJob[key] = { jobName: jobName || "No Job", FAIL: 0, WARN: 0 };
+        }
+        summaryByJob[key][finding.severity] += 1;
       }
 
-      if (!jobsApi || typeof jobsApi.getAllJobIds !== "function") {
-        onLog("[DEV][AUDIT] Jobs API unavailable.");
-        return false;
+      function captureActionLogs(jobId, actionType, beforeState, beforeLogLength) {
+        var lines = collectNewLogLines(state, beforeLogLength);
+        var profile = auditApi && typeof auditApi.getJobProfile === "function"
+          ? auditApi.getJobProfile(jobsApi, jobId)
+          : { isTipped: false, tipModel: "none", venueType: "service" };
+        var context = {
+          jobId: jobId,
+          venueType: profile.venueType,
+          season: state.world && state.world.season ? String(state.world.season).toLowerCase() : "spring",
+          profile: profile,
+          needs: {
+            energy: state.player.needs.energy,
+            hunger: state.player.needs.hunger,
+            social: state.player.needs.social
+          },
+          moneyDelta: Math.floor((state.player.money || 0) - (beforeState.player.money || 0)),
+          repDeltaTown: Math.floor((state.player.reputationTown || 0) - (beforeState.player.reputationTown || 0)),
+          repDeltaBar: Math.floor((state.player.reputationBar || 0) - (beforeState.player.reputationBar || 0)),
+          actionType: actionType,
+          rentDue: actionType === "sleep" && state.time && state.time.weekdayIndex === 0
+        };
+
+        lines.forEach(function (line) {
+          var rules = auditApi && typeof auditApi.evaluateMessageAgainstRules === "function"
+            ? auditApi.evaluateMessageAgainstRules({ message: line, context: context, catalog: catalog })
+            : [];
+
+          messageCounts[line] = (messageCounts[line] || 0) + 1;
+
+          rules.forEach(function (rule) {
+            pushFinding(jobId, jobsApi.getJobName(jobId), rule, line, context);
+          });
+        });
       }
 
-      jobsApi.getAllJobIds().forEach(function (jobId) {
-        var jobName = jobsApi.getJobName(jobId);
-        var profile = typeof jobsApi.getJobMessagingProfile === "function"
-          ? jobsApi.getJobMessagingProfile(jobId)
-          : { isTipped: false, venueType: "service" };
-        var uniqueMessages = {};
-        var issues = [];
-        var i;
+      function runWithContext(jobId, actionType, beforeActionMutator, actionRunner) {
+        var beforeLogLength;
+        var beforeState;
+        if (typeof beforeActionMutator === "function") {
+          beforeActionMutator();
+        }
+        beforeState = deepClone(state);
+        beforeLogLength = Array.isArray(state.log) ? state.log.length : 0;
+        actionRunner();
+        captureActionLogs(jobId, actionType, beforeState, beforeLogLength);
+      }
 
+      function setupJob(jobId) {
         restoreState(state, originalSnapshot);
         state.player.money = Math.max(20000, state.player.money || 0);
         if (state.jobs && state.jobs.list && state.jobs.list[jobId]) {
@@ -364,59 +431,130 @@
         if (jobsApi && typeof jobsApi.setActiveJob === "function") {
           jobsApi.setActiveJob(state, jobId);
         }
+      }
 
-        for (i = 0; i < iterations; i += 1) {
-          var beforeWorkLog = Array.isArray(state.log) ? state.log.length : 0;
-          if (typeof runWorkAction === "function") {
-            runWorkAction();
-          }
-          collectNewLogLines(state, beforeWorkLog).forEach(function (line) {
-            uniqueMessages[line] = true;
+      if (!auditApi || !jobsApi || typeof jobsApi.getAllJobIds !== "function") {
+        onLog("[DEV][AUDIT] Message audit dependencies unavailable.");
+        return false;
+      }
+
+      jobIds = jobsApi.getAllJobIds();
+
+      jobIds.forEach(function (jobId) {
+        var i;
+        setupJob(jobId);
+
+        for (i = 0; i < settings.iterationsPerJob; i += 1) {
+          runWithContext(jobId, "work", null, function () {
+            if (typeof runWorkAction === "function") runWorkAction();
           });
-
-          if (typeof runSleepAction === "function") runSleepAction();
+          runWithContext(jobId, "socialize", null, function () {
+            if (typeof runSocializeAction === "function") runSocializeAction();
+          });
+          runWithContext(jobId, "eat", null, function () {
+            if (typeof runEatAction === "function") runEatAction();
+          });
+          runWithContext(jobId, "rest", null, function () {
+            if (typeof runRestAction === "function") runRestAction();
+          });
+          runWithContext(jobId, "sleep", null, function () {
+            if (typeof runSleepAction === "function") runSleepAction();
+          });
         }
 
-        issues = detectIssues(profile, Object.keys(uniqueMessages));
-        report.push({
-          jobId: jobId,
-          jobName: jobName,
-          profile: profile,
-          uniqueMessages: Object.keys(uniqueMessages),
-          issues: issues
-        });
+        if (settings.includeSeasonSweep) {
+          [0, 1, 2, 3].forEach(function (seasonIndex) {
+            for (i = 0; i < settings.seasonSweepIterations; i += 1) {
+              runWithContext(jobId, "work", function () {
+                state.time.seasonIndex = seasonIndex;
+                if (syncWorldSeasonFromTime) syncWorldSeasonFromTime();
+                if (!state.world || typeof state.world !== "object") state.world = {};
+                state.world.season = seasonIdFromIndex(seasonIndex);
+              }, function () {
+                if (typeof runWorkAction === "function") runWorkAction();
+              });
+            }
+          });
+        }
+
+        if (settings.includeNeedsSweep) {
+          for (i = 0; i < settings.needsSweepIterations; i += 1) {
+            runWithContext(jobId, "work", function () {
+              state.player.needs.energy = 5;
+              state.player.needs.hunger = 5;
+            }, function () {
+              if (typeof runWorkAction === "function") runWorkAction();
+            });
+            runWithContext(jobId, "rest", function () {
+              state.player.needs.energy = 95;
+              state.player.needs.hunger = 95;
+            }, function () {
+              if (typeof runRestAction === "function") runRestAction();
+            });
+          }
+        }
       });
 
       restoreState(state, originalSnapshot);
 
-      onLog("[DEV][AUDIT] Message audit completed for " + report.length + " jobs (" + iterations + " iterations each).");
-      report.forEach(function (entry) {
-        var issueCount = entry.issues.length;
-        onLog("[DEV][AUDIT] Job: " + entry.jobName + " | Issues: " + issueCount);
-        if (issueCount > 0) {
-          entry.issues.slice(0, 3).forEach(function (issue) {
-            onLog("[DEV][AUDIT] - " + issue.rule + ": " + issue.message);
-          });
-        }
+      var postRestoreFingerprint = JSON.stringify(state);
+      if (postRestoreFingerprint !== restoreFingerprint) {
+        onLog("[DEV][AUDIT] WARN: state restore fingerprint mismatch after audit.");
+      } else {
+        onLog("[DEV][AUDIT] State restore integrity confirmed.");
+      }
+
+      onLog("[DEV][AUDIT] Catalog entries: " + catalog.length + ".");
+      onLog("[DEV][AUDIT] Completed matrix run: " + jobIds.length + " jobs.");
+
+      jobIds.forEach(function (jobId) {
+        var bucket = summaryByJob[jobId] || { FAIL: 0, WARN: 0 };
+        onLog("[DEV][AUDIT] Job " + jobsApi.getJobName(jobId) + " — FAIL: " + bucket.FAIL + ", WARN: " + bucket.WARN);
       });
 
       if (global.console && typeof global.console.groupCollapsed === "function") {
-        global.console.groupCollapsed("[DEV] Message Audit Report");
-        global.console.table(report.map(function (entry) {
+        var grouped = {};
+        findings.forEach(function (item) {
+          var groupKey = item.jobName + " :: " + item.ruleId;
+          if (!grouped[groupKey]) grouped[groupKey] = [];
+          grouped[groupKey].push(item);
+        });
+
+        global.console.groupCollapsed("[DEV] Message Audit Catalog");
+        global.console.table(catalog);
+        global.console.groupEnd();
+
+        global.console.groupCollapsed("[DEV] Message Audit Findings");
+        Object.keys(grouped).forEach(function (groupKey) {
+          var sample = grouped[groupKey][0];
+          global.console.log(groupKey, {
+            severity: sample.severity,
+            count: grouped[groupKey].length,
+            exampleMessage: sample.message,
+            context: sample.context
+          });
+        });
+        global.console.groupEnd();
+
+        global.console.groupCollapsed("[DEV] Message Audit Top 10 Issues");
+        var top = Object.keys(grouped)
+          .map(function (k) { return { key: k, count: grouped[k].length, sample: grouped[k][0] }; })
+          .sort(function (a, b) { return b.count - a.count; })
+          .slice(0, 10);
+        global.console.table(top.map(function (entry) {
           return {
-            Job: entry.jobName,
-            Tipped: entry.profile.isTipped,
-            Venue: entry.profile.venueType,
-            "Unique Messages": entry.uniqueMessages.length,
-            Issues: entry.issues.length
+            Group: entry.key,
+            Count: entry.count,
+            Severity: entry.sample.severity,
+            Example: entry.sample.message
           };
         }));
-        global.console.info("Full report", report);
         global.console.groupEnd();
       }
 
       return true;
     }
+
 
     function runAction(actionId) {
       var state;
@@ -479,7 +617,11 @@
 
         global.__DEV_DISABLE_SAVE = true;
         try {
-          auditOk = runMessageAuditAction(state, { iterations: 50 });
+          auditOk = runMessageAuditAction(state, {
+            iterationsPerJob: 50,
+            includeSeasonSweep: true,
+            includeNeedsSweep: true
+          });
           if (auditOk && typeof onStateChanged === "function") {
             onStateChanged();
           }
