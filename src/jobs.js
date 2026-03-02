@@ -1157,8 +1157,8 @@
         energyCostMultiplier: 0.9,
         venueTypes: ["restaurant", "retail", "service", "manual_labor", "transport"],
         logTemplates: [
-          "You worked a shoulder-season shift at {job} and town felt steadier.",
-          "Shoulder-season traffic gave your shift at {job} a calmer rhythm."
+          "You worked a mid-season shift at {job} and town felt steadier.",
+          "Between-season traffic gave your shift at {job} a calmer rhythm."
         ]
       },
       {

@@ -341,7 +341,17 @@
       return "You hung out with other seasonal workers. (+" + amount + " Staff relationship)";
     }
 
-    return "You met some summer people and made a good impression. (+" + amount + " Summer People relationship)";
+    return "You met some visitors and made a good impression. (+" + amount + " Summer People relationship)";
+  }
+
+  function getBarRepLogLine(amount, profile) {
+    var venueType = profile && profile.venueType ? String(profile.venueType) : "";
+
+    if (venueType.indexOf("bar") >= 0) {
+      return "You make a few new bar-side connections. (+" + amount + " Bar Rep)";
+    }
+
+    return "You make a few new nightlife connections. (+" + amount + " Nightlife Rep)";
   }
 
   function ensureFlagsState() {
@@ -762,7 +772,7 @@
       log("People are getting to know you. (+" + townRepResult.delta + " Town Rep)");
     }
     if (barRepResult && barRepResult.delta > 0) {
-      log("You make a few new bar-side connections. (+" + barRepResult.delta + " Bar Rep)");
+      log(getBarRepLogLine(barRepResult.delta, jobs.getJobMessagingProfile(state.jobs.activeJobId)));
     }
     log(getSocializeRelationshipLogLine(socialResult.groupId, socialResult.delta));
     if (touristTip > 0) {
