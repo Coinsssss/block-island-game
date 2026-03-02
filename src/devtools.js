@@ -555,6 +555,368 @@
       return true;
     }
 
+    function runEconomySimulationAuditAction(state, options) {
+      var simulationRuns = options && typeof options.runs === "number"
+        ? Math.max(1, Math.floor(options.runs))
+        : 500;
+      var simulationDays = options && typeof options.days === "number"
+        ? Math.max(90, Math.floor(options.days))
+        : 90;
+      var originalSnapshot = deepClone(state);
+      var restoreFingerprint = JSON.stringify(originalSnapshot);
+      var runs = [];
+      var passFailFlags = [];
+      var warnFlags = [];
+      var summary;
+
+      function chooseBestAffordableHousingId(currentState) {
+        var optionsIds;
+        var bestId = "";
+
+        if (!housing || typeof housing.getAvailableHousingOptionIds !== "function") {
+          return "";
+        }
+
+        optionsIds = housing.getAvailableHousingOptionIds(currentState);
+        optionsIds.sort(function (a, b) {
+          var tierA = housing.getHousingTier(a);
+          var tierB = housing.getHousingTier(b);
+          var rentA = housing.getWeeklyRent(a);
+          var rentB = housing.getWeeklyRent(b);
+
+          if (tierA !== tierB) return tierB - tierA;
+          return rentA - rentB;
+        });
+
+        if (optionsIds.length > 0) {
+          bestId = optionsIds[0];
+        }
+
+        return bestId;
+      }
+
+      function chooseBestUnlockedJobId(currentState) {
+        var jobIds;
+        var bestJobId = "";
+        var bestPay = -1;
+
+        if (!jobs || typeof jobs.getAllJobIds !== "function") {
+          return "";
+        }
+
+        jobIds = jobs.getAllJobIds();
+        jobIds.forEach(function (jobId) {
+          var definition;
+
+          if (!jobs.isJobUnlocked(currentState, jobId)) return;
+          definition = jobs.JOBS[jobId];
+          if (!definition) return;
+
+          if (definition.basePay > bestPay) {
+            bestPay = definition.basePay;
+            bestJobId = jobId;
+          }
+        });
+
+        return bestJobId;
+      }
+
+      function summarizeRun(run) {
+        var moneyFirst30 = run.moneyOverTime.slice(0, 30);
+        var moneyLast30 = run.moneyOverTime.slice(-30);
+        var first30Slope = moneyFirst30.length > 1
+          ? (moneyFirst30[moneyFirst30.length - 1] - moneyFirst30[0]) / moneyFirst30.length
+          : 0;
+        var last30Slope = moneyLast30.length > 1
+          ? (moneyLast30[moneyLast30.length - 1] - moneyLast30[0]) / moneyLast30.length
+          : 0;
+        var finalRent = run.dailyRentEquivalent.length > 0
+          ? run.dailyRentEquivalent[run.dailyRentEquivalent.length - 1]
+          : 0;
+        var avgNetAfter60 = run.dailyNetByDay.length > 60
+          ? run.dailyNetByDay.slice(60).reduce(function (sum, value) { return sum + value; }, 0) /
+              run.dailyNetByDay.slice(60).length
+          : run.averageDailySurplus;
+        var minMoneyAfter60 = run.moneyOverTime.length > 60
+          ? Math.min.apply(null, run.moneyOverTime.slice(60))
+          : Math.min.apply(null, run.moneyOverTime);
+        var permanentlyWealthy = minMoneyAfter60 > finalRent * 14 && avgNetAfter60 > 0;
+        var povertyLoop = run.missedRentCount >= 3 && minMoneyAfter60 <= finalRent * 7 && avgNetAfter60 <= 0;
+        var rentIrrelevantLateGame = run.rentBurdenPercentLateGame < 5;
+        var possibleInfiniteGrowth = run.maxMoneyReached >= 50000 && last30Slope > 150 && last30Slope > first30Slope * 1.5;
+        var stableIncomeAfter60 = avgNetAfter60 > finalRent;
+
+        if (possibleInfiniteGrowth) {
+          passFailFlags.push("FAIL: Run " + run.run + " shows unconstrained late-game money growth.");
+        }
+        if (run.daysToFirstHousingUpgrade > 0 && run.daysToFirstHousingUpgrade < 30) {
+          passFailFlags.push("FAIL: Run " + run.run + " reaches first housing upgrade in " + run.daysToFirstHousingUpgrade + " days (<30).");
+        }
+        if (!stableIncomeAfter60) {
+          passFailFlags.push("FAIL: Run " + run.run + " does not achieve stable income above rent-equivalent after day 60.");
+        }
+        if (run.daysToFirstHousingUpgrade > 60 || run.daysToFirstHousingUpgrade === -1) {
+          warnFlags.push("WARN: Run " + run.run + " housing progression is slow (" + (run.daysToFirstHousingUpgrade === -1 ? "no upgrade" : run.daysToFirstHousingUpgrade + " days") + ").");
+        }
+        if (run.housingProgression.length > 1 && run.rentBurdenPercentLateGame < 8) {
+          warnFlags.push("WARN: Run " + run.run + " rent becomes comparatively trivial after upgrade.");
+        }
+
+        run.permanentlyWealthy = permanentlyWealthy;
+        run.povertyLoop = povertyLoop;
+        run.rentIrrelevantLateGame = rentIrrelevantLateGame;
+      }
+
+      function runSingleSimulation(runIndex) {
+        var dayIndex;
+        var run = {
+          run: runIndex + 1,
+          moneyOverTime: [],
+          reputationProgression: [],
+          dailyRentEquivalent: [],
+          dailyNetByDay: [],
+          jobProgression: [],
+          housingProgression: [],
+          rentBurdenPercent: 0,
+          rentBurdenPercentLateGame: 0,
+          averageDailySurplus: 0,
+          averageDailySurplusLateGame: 0,
+          totalRentPaid: 0,
+          totalGrossIncome: 0,
+          missedRentCount: 0,
+          maxMoneyReached: 0,
+          daysToFirstHousingUpgrade: -1
+        };
+
+        restoreState(state, originalSnapshot);
+        if (ns.rng && typeof ns.rng.setSeed === "function") {
+          ns.rng.setSeed(1000 + runIndex);
+        }
+
+        for (dayIndex = 1; dayIndex <= simulationDays; dayIndex += 1) {
+          var dayStartMoney = state.player.money;
+          var rentDueTonight = state.time.weekdayIndex === 6;
+          var rentTonight = rentDueTonight && housing && typeof housing.getEffectiveWeeklyRent === "function"
+            ? housing.getEffectiveWeeklyRent(state)
+            : 0;
+          var housingBefore = state.housing.current;
+          var currentJob = state.jobs.activeJobId;
+          var currentJobLevel = currentJob && state.jobs.list[currentJob]
+            ? state.jobs.list[currentJob].level
+            : 0;
+          var housingId;
+          var bestJobId;
+
+          if (!currentJob && !state.jobs.pendingJobId && typeof applyJobAction === "function") {
+            bestJobId = chooseBestUnlockedJobId(state);
+            if (bestJobId) {
+              applyJobAction(bestJobId);
+            }
+          }
+
+          housingId = chooseBestAffordableHousingId(state);
+          if (housingId && housing && typeof housing.setPendingMoveTarget === "function") {
+            housing.setPendingMoveTarget(housingId);
+            if (housing.canMoveToSharedHouse(state)) {
+              housing.moveToSharedHouse(state);
+            }
+          }
+
+          if (typeof runWorkAction === "function") runWorkAction();
+          if (state.player.needs.hunger < 45 || state.player.needs.energy < 35) {
+            if (typeof runEatAction === "function") runEatAction();
+          } else if (typeof runSocializeAction === "function") {
+            runSocializeAction();
+          }
+          if (state.player.needs.energy < 25) {
+            if (typeof runRestAction === "function") runRestAction();
+          } else if (typeof runWorkAction === "function") {
+            runWorkAction();
+          }
+          if (typeof runSleepAction === "function") runSleepAction();
+
+          if (state.jobs.activeJobId && state.jobs.activeJobId !== currentJob) {
+            run.jobProgression.push("Day " + dayIndex + ": " + jobs.getJobName(state.jobs.activeJobId) + " (L" + state.jobs.list[state.jobs.activeJobId].level + ")");
+          } else if (state.jobs.activeJobId && state.jobs.list[state.jobs.activeJobId].level !== currentJobLevel) {
+            run.jobProgression.push("Day " + dayIndex + ": " + jobs.getJobName(state.jobs.activeJobId) + " promoted to L" + state.jobs.list[state.jobs.activeJobId].level);
+          }
+
+          if (state.housing.current !== housingBefore) {
+            run.housingProgression.push("Day " + dayIndex + ": " + housing.getHousingLabel(state.housing.current));
+            if (run.daysToFirstHousingUpgrade < 0) {
+              run.daysToFirstHousingUpgrade = dayIndex;
+            }
+          }
+
+          if (rentDueTonight && rentTonight > 0) {
+            if (dayStartMoney + 1 <= state.player.money || dayStartMoney >= rentTonight) {
+              if (state.player.money <= Math.max(0, dayStartMoney - rentTonight + 1)) {
+                run.totalRentPaid += rentTonight;
+              }
+            }
+            if (state.player.money === 0 && dayStartMoney < rentTonight) {
+              run.missedRentCount += 1;
+            }
+          }
+
+          run.moneyOverTime.push(state.player.money);
+          run.maxMoneyReached = Math.max(run.maxMoneyReached, state.player.money);
+          run.reputationProgression.push(reputation && typeof reputation.getTownReputation === "function"
+            ? reputation.getTownReputation(state)
+            : Math.max(0, Math.floor(state.player.reputationTown || state.player.reputation || 0)));
+          run.dailyRentEquivalent.push((housing && typeof housing.getEffectiveWeeklyRent === "function"
+            ? housing.getEffectiveWeeklyRent(state)
+            : 0) / 7);
+          run.dailyNetByDay.push(state.player.money - dayStartMoney);
+
+          bestJobId = chooseBestUnlockedJobId(state);
+          if (
+            bestJobId &&
+            bestJobId !== state.jobs.activeJobId &&
+            !state.jobs.pendingJobId &&
+            typeof applyJobAction === "function"
+          ) {
+            applyJobAction(bestJobId);
+          }
+        }
+
+        run.totalGrossIncome = run.dailyNetByDay.reduce(function (sum, value) {
+          return sum + Math.max(0, value);
+        }, 0);
+        run.averageDailySurplus = run.dailyNetByDay.reduce(function (sum, value) {
+          return sum + value;
+        }, 0) / run.dailyNetByDay.length;
+        run.averageDailySurplusLateGame = run.dailyNetByDay.slice(60).reduce(function (sum, value) {
+          return sum + value;
+        }, 0) / Math.max(1, run.dailyNetByDay.slice(60).length);
+        run.rentBurdenPercent = run.totalGrossIncome > 0
+          ? (run.totalRentPaid / run.totalGrossIncome) * 100
+          : 0;
+        run.rentBurdenPercentLateGame = run.dailyNetByDay.length > 60
+          ? (run.totalRentPaid / Math.max(1, run.dailyNetByDay.slice(60).reduce(function (sum, value) {
+              return sum + Math.max(0, value);
+            }, 0))) * 100
+          : run.rentBurdenPercent;
+
+        if (run.jobProgression.length === 0 && state.jobs.activeJobId) {
+          run.jobProgression.push("Day 1: " + jobs.getJobName(state.jobs.activeJobId) + " (L" + state.jobs.list[state.jobs.activeJobId].level + ")");
+        }
+        if (run.housingProgression.length === 0) {
+          run.housingProgression.push("Day 1: " + housing.getHousingLabel(state.housing.current));
+        }
+
+        summarizeRun(run);
+        runs.push(run);
+      }
+
+      function formatRunLogLine(run) {
+        return "[DEV][ECON-AUDIT][Run " + run.run + "]" +
+          " money(start/end/max): $" + originalSnapshot.player.money + "/$" +
+          run.moneyOverTime[run.moneyOverTime.length - 1] + "/$" + run.maxMoneyReached +
+          " | first housing upgrade day: " + (run.daysToFirstHousingUpgrade > 0 ? run.daysToFirstHousingUpgrade : "none") +
+          " | rent burden: " + run.rentBurdenPercent.toFixed(1) + "%" +
+          " | avg daily surplus: " + run.averageDailySurplus.toFixed(1) +
+          " | wealthy=" + (run.permanentlyWealthy ? "yes" : "no") +
+          " | povertyLoop=" + (run.povertyLoop ? "yes" : "no");
+      }
+
+      function calculateSummary() {
+        var runsWithUpgrade = runs.filter(function (run) {
+          return run.daysToFirstHousingUpgrade > 0;
+        });
+        var wealthyRuns = runs.filter(function (run) { return run.permanentlyWealthy; }).length;
+        var povertyRuns = runs.filter(function (run) { return run.povertyLoop; }).length;
+        var rentIrrelevantRuns = runs.filter(function (run) { return run.rentIrrelevantLateGame; }).length;
+
+        return {
+          averageTimeToFirstHousingUpgrade: runsWithUpgrade.length > 0
+            ? runsWithUpgrade.reduce(function (sum, run) { return sum + run.daysToFirstHousingUpgrade; }, 0) / runsWithUpgrade.length
+            : -1,
+          averageMaxMoneyReached: runs.reduce(function (sum, run) {
+            return sum + run.maxMoneyReached;
+          }, 0) / Math.max(1, runs.length),
+          canBecomePermanentlyWealthy: wealthyRuns > (runs.length * 0.5),
+          everStuckInPovertyLoop: povertyRuns > 0,
+          rentBecomesIrrelevantLateGame: rentIrrelevantRuns > (runs.length * 0.5),
+          runCount: runs.length,
+          failCount: passFailFlags.length,
+          warnCount: warnFlags.length
+        };
+      }
+
+      onLog("[DEV][ECON-AUDIT] Starting economy simulation audit: " + simulationRuns + " runs, " + simulationDays + " days each.");
+
+      for (var runIndex = 0; runIndex < simulationRuns; runIndex += 1) {
+        runSingleSimulation(runIndex);
+      }
+
+      summary = calculateSummary();
+
+      runs.forEach(function (run) {
+        onLog(formatRunLogLine(run));
+      });
+
+      onLog("[DEV][ECON-AUDIT] Summary:");
+      onLog("[DEV][ECON-AUDIT] Avg time to first housing upgrade: " +
+        (summary.averageTimeToFirstHousingUpgrade < 0 ? "No upgrades" : summary.averageTimeToFirstHousingUpgrade.toFixed(1) + " days"));
+      onLog("[DEV][ECON-AUDIT] Avg max money reached: $" + summary.averageMaxMoneyReached.toFixed(0));
+      onLog("[DEV][ECON-AUDIT] Can become permanently wealthy: " + (summary.canBecomePermanentlyWealthy ? "YES" : "NO"));
+      onLog("[DEV][ECON-AUDIT] Poverty loop observed: " + (summary.everStuckInPovertyLoop ? "YES" : "NO"));
+      onLog("[DEV][ECON-AUDIT] Rent irrelevant late game: " + (summary.rentBecomesIrrelevantLateGame ? "YES" : "NO"));
+
+      passFailFlags.forEach(function (line) {
+        onLog("[DEV][ECON-AUDIT] " + line);
+      });
+      warnFlags.forEach(function (line) {
+        onLog("[DEV][ECON-AUDIT] " + line);
+      });
+
+      if (global.console && typeof global.console.groupCollapsed === "function") {
+        global.console.groupCollapsed("[DEV] Economy Simulation Audit");
+        global.console.info("Summary", summary);
+        global.console.info("Fail flags", passFailFlags);
+        global.console.info("Warn flags", warnFlags);
+        global.console.table(runs.map(function (run) {
+          return {
+            Run: run.run,
+            MoneyStart: originalSnapshot.player.money,
+            MoneyEnd: run.moneyOverTime[run.moneyOverTime.length - 1],
+            MaxMoney: run.maxMoneyReached,
+            FirstHousingUpgradeDay: run.daysToFirstHousingUpgrade,
+            RentBurdenPct: Number(run.rentBurdenPercent.toFixed(2)),
+            AvgDailySurplus: Number(run.averageDailySurplus.toFixed(2)),
+            PermanentlyWealthy: run.permanentlyWealthy,
+            PovertyLoop: run.povertyLoop,
+            RentIrrelevantLateGame: run.rentIrrelevantLateGame
+          };
+        }));
+        runs.forEach(function (run) {
+          global.console.groupCollapsed("[DEV] Economy Run " + run.run + " detail");
+          global.console.log("moneyOverTime", run.moneyOverTime);
+          global.console.log("jobProgression", run.jobProgression);
+          global.console.log("housingProgression", run.housingProgression);
+          global.console.log("reputationProgression", run.reputationProgression);
+          global.console.log("rentBurdenPercent", run.rentBurdenPercent);
+          global.console.log("averageDailySurplus", run.averageDailySurplus);
+          global.console.groupEnd();
+        });
+        global.console.groupEnd();
+      }
+
+      restoreState(state, originalSnapshot);
+      if (ns.rng && typeof ns.rng.reset === "function") {
+        ns.rng.reset();
+      }
+
+      if (JSON.stringify(state) !== restoreFingerprint) {
+        onLog("[DEV][ECON-AUDIT] WARN: state restore fingerprint mismatch after economy audit.");
+      } else {
+        onLog("[DEV][ECON-AUDIT] State restore integrity confirmed.");
+      }
+
+      return true;
+    }
+
 
     function runAction(actionId) {
       var state;
@@ -629,6 +991,25 @@
           global.__DEV_DISABLE_SAVE = previousAuditDisableSaveFlag;
         }
         return auditOk;
+      }
+
+      if (actionId === "run_economy_simulation_audit") {
+        var previousEconomyAuditDisableSaveFlag = global.__DEV_DISABLE_SAVE;
+        var economyAuditOk;
+
+        global.__DEV_DISABLE_SAVE = true;
+        try {
+          economyAuditOk = runEconomySimulationAuditAction(state, {
+            runs: 500,
+            days: 90
+          });
+          if (economyAuditOk && typeof onStateChanged === "function") {
+            onStateChanged();
+          }
+        } finally {
+          global.__DEV_DISABLE_SAVE = previousEconomyAuditDisableSaveFlag;
+        }
+        return economyAuditOk;
       }
 
       message = runNonResetAction(state, actionId);
