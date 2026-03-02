@@ -190,6 +190,28 @@
       hooks.syncWorldSeasonFromTime :
       null;
 
+    function deepClone(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    function restoreState(target, snapshot) {
+      Object.keys(target).forEach(function (key) {
+        delete target[key];
+      });
+      Object.keys(snapshot).forEach(function (key) {
+        target[key] = deepClone(snapshot[key]);
+      });
+    }
+
+    function collectNewLogLines(state, beforeLength) {
+      if (!Array.isArray(state.log)) return [];
+      return state.log.slice(beforeLength).map(function (entry) {
+        return String(entry || "").trim();
+      }).filter(function (entry) {
+        return Boolean(entry);
+      });
+    }
+
     function runSmokeTestsAction(state) {
       var report;
 
@@ -283,6 +305,119 @@
       return true;
     }
 
+    function runMessageAuditAction(state, options) {
+      var iterations = options && typeof options.iterations === "number" ? Math.max(1, Math.floor(options.iterations)) : 50;
+      var originalSnapshot = deepClone(state);
+      var jobsApi = ns.jobs;
+      var report = [];
+      var suspiciousWordsByVenue = {
+        manual_labor: [/\bbar\b/i, /\bbartend/i, /\bguest\b/i],
+        retail: [/\bdock\b/i, /\bdeck\b/i],
+        bar: [/\blawn\b/i, /\bmowing\b/i]
+      };
+
+      function recordIssue(issues, rule, message) {
+        issues.push({ rule: rule, message: message });
+      }
+
+      function detectIssues(profile, messages) {
+        var issues = [];
+        var venueRules = suspiciousWordsByVenue[profile.venueType] || [];
+
+        messages.forEach(function (line) {
+          if (!profile.isTipped && /\btip|tips|tipped\b/i.test(line)) {
+            recordIssue(issues, "tip-text-on-non-tipped-job", line);
+          }
+          if (/\bper week\b/i.test(line) && /pay is now/i.test(line)) {
+            recordIssue(issues, "pay-unit-mismatch", line);
+          }
+          venueRules.forEach(function (pattern) {
+            if (pattern.test(line)) {
+              recordIssue(issues, "venue-reference-mismatch", line);
+            }
+          });
+        });
+
+        return issues;
+      }
+
+      if (!jobsApi || typeof jobsApi.getAllJobIds !== "function") {
+        onLog("[DEV][AUDIT] Jobs API unavailable.");
+        return false;
+      }
+
+      jobsApi.getAllJobIds().forEach(function (jobId) {
+        var jobName = jobsApi.getJobName(jobId);
+        var profile = typeof jobsApi.getJobMessagingProfile === "function"
+          ? jobsApi.getJobMessagingProfile(jobId)
+          : { isTipped: false, venueType: "service" };
+        var uniqueMessages = {};
+        var issues = [];
+        var i;
+
+        restoreState(state, originalSnapshot);
+        state.player.money = Math.max(20000, state.player.money || 0);
+        if (state.jobs && state.jobs.list && state.jobs.list[jobId]) {
+          state.jobs.list[jobId].level = 3;
+          state.jobs.list[jobId].promotionProgress = 0;
+        }
+        if (jobsApi && typeof jobsApi.setActiveJob === "function") {
+          jobsApi.setActiveJob(state, jobId);
+        }
+
+        for (i = 0; i < iterations; i += 1) {
+          var beforeWorkLog = Array.isArray(state.log) ? state.log.length : 0;
+          if (typeof runWorkAction === "function") {
+            runWorkAction();
+          }
+          collectNewLogLines(state, beforeWorkLog).forEach(function (line) {
+            uniqueMessages[line] = true;
+          });
+
+          if (typeof runSleepAction === "function") runSleepAction();
+        }
+
+        issues = detectIssues(profile, Object.keys(uniqueMessages));
+        report.push({
+          jobId: jobId,
+          jobName: jobName,
+          profile: profile,
+          uniqueMessages: Object.keys(uniqueMessages),
+          issues: issues
+        });
+      });
+
+      restoreState(state, originalSnapshot);
+
+      onLog("[DEV][AUDIT] Message audit completed for " + report.length + " jobs (" + iterations + " iterations each).");
+      report.forEach(function (entry) {
+        var issueCount = entry.issues.length;
+        onLog("[DEV][AUDIT] Job: " + entry.jobName + " | Issues: " + issueCount);
+        if (issueCount > 0) {
+          entry.issues.slice(0, 3).forEach(function (issue) {
+            onLog("[DEV][AUDIT] - " + issue.rule + ": " + issue.message);
+          });
+        }
+      });
+
+      if (global.console && typeof global.console.groupCollapsed === "function") {
+        global.console.groupCollapsed("[DEV] Message Audit Report");
+        global.console.table(report.map(function (entry) {
+          return {
+            Job: entry.jobName,
+            Tipped: entry.profile.isTipped,
+            Venue: entry.profile.venueType,
+            "Unique Messages": entry.uniqueMessages.length,
+            Issues: entry.issues.length
+          };
+        }));
+        global.console.info("Full report", report);
+        global.console.groupEnd();
+      }
+
+      return true;
+    }
+
     function runAction(actionId) {
       var state;
       var message;
@@ -336,6 +471,22 @@
           global.__DEV_DISABLE_SAVE = previousAutoplayDisableSaveFlag;
         }
         return autoplayOk;
+      }
+
+      if (actionId === "run_message_audit") {
+        var previousAuditDisableSaveFlag = global.__DEV_DISABLE_SAVE;
+        var auditOk;
+
+        global.__DEV_DISABLE_SAVE = true;
+        try {
+          auditOk = runMessageAuditAction(state, { iterations: 50 });
+          if (auditOk && typeof onStateChanged === "function") {
+            onStateChanged();
+          }
+        } finally {
+          global.__DEV_DISABLE_SAVE = previousAuditDisableSaveFlag;
+        }
+        return auditOk;
       }
 
       message = runNonResetAction(state, actionId);
