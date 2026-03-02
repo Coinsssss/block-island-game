@@ -372,7 +372,7 @@
               <button type="button" data-dev-action="run_autoplay_30">Run Autoplay (30 days)</button>
               <button type="button" data-dev-action="run_message_audit">Run Message Audit</button>
               <button type="button" data-dev-action="run_economy_simulation_audit">Run Economy Simulation Audit</button>
-              <button type="button" data-dev-action="download_economy_report">Download Economy Report (JSON)</button>
+              <button type="button" data-dev-action="view_economy_report">View Last Economy Report</button>
               <button type="button" data-dev-action="export_message_log">Export Message Log (JSON)</button>
               <button type="button" data-dev-action="clear_rendered_log">Clear Rendered Log</button>
               <button id="dev-preview-tooltips-toggle" type="button" aria-pressed="false">
@@ -384,6 +384,18 @@
         </div>
       </section>
     </main>
+
+
+    <div id="economy-report-modal" class="dev-modal" hidden>
+      <div class="dev-modal-content" role="dialog" aria-modal="true" aria-label="Economy audit report viewer">
+        <h3>Last Economy Audit Report (JSON)</h3>
+        <textarea id="economy-report-json" readonly spellcheck="false"></textarea>
+        <div class="dev-modal-actions">
+          <button id="economy-report-copy-btn" type="button">Copy to Clipboard</button>
+          <button id="economy-report-close-btn" type="button">Close</button>
+        </div>
+      </div>
+    </div>
 
     <script src="./src/time.js"></script>
     <script src="./src/needs.js"></script>
