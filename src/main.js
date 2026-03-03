@@ -1170,6 +1170,10 @@
     onSetLifestyle: onSetLifestyle,
     onNewGame: onNewGame,
     onToggleDevMode: onToggleDevMode,
+    onPreviewTooltipsChanged: function (enabled) {
+      log("[DEV] Preview Tooltips: " + (enabled ? "ON" : "OFF") + ".");
+      render();
+    },
     onDevToolAction: onDevToolAction,
     onSelectStartingJob: onSelectStartingJob,
     onOpenSwitchJob: onOpenSwitchJob,

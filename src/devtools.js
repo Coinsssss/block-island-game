@@ -61,48 +61,202 @@
     }
   }
 
+  function formatMoney(value) {
+    return "$" + Math.floor(Number(value) || 0);
+  }
+
+  function getTownReputationValue(state) {
+    if (reputation && typeof reputation.getTownReputation === "function") {
+      return reputation.getTownReputation(state);
+    }
+
+    return Math.max(0, Math.min(100, Math.floor(state.player.reputation || 0)));
+  }
+
+  function setTownReputationValue(state, value) {
+    if (reputation && typeof reputation.setTownReputation === "function") {
+      reputation.setTownReputation(state, value);
+      return;
+    }
+
+    state.player.reputation = reputation.clampReputation(value);
+    state.player.reputationTown = state.player.reputation;
+  }
+
+  function getSocialValue(state, key) {
+    if (stateApi && typeof stateApi.getRelationshipValue === "function") {
+      return stateApi.getRelationshipValue(state, key);
+    }
+
+    if (!state.relationships || typeof state.relationships !== "object") {
+      state.relationships = stateApi.createInitialSocialState();
+    }
+
+    return clampSocialValue(state.relationships[key]);
+  }
+
+  function promptIntegerInput(message, fallbackValue, min, max) {
+    var promptFn = global && typeof global.prompt === "function"
+      ? global.prompt
+      : null;
+    var rawValue;
+    var normalized;
+    var parsed;
+
+    if (!promptFn) {
+      return {
+        ok: false,
+        canceled: true,
+        reason: "Prompt unavailable in this browser context."
+      };
+    }
+
+    rawValue = promptFn(message, String(fallbackValue));
+    if (rawValue === null) {
+      return {
+        ok: false,
+        canceled: true,
+        reason: "Canceled."
+      };
+    }
+
+    normalized = String(rawValue).trim().replace(/^\$/, "");
+    if (!/^-?\d+$/.test(normalized)) {
+      return {
+        ok: false,
+        canceled: false,
+        reason: "Invalid number. Enter a whole number."
+      };
+    }
+
+    parsed = Math.floor(Number(normalized));
+    if (Number.isNaN(parsed) || parsed < min || parsed > max) {
+      return {
+        ok: false,
+        canceled: false,
+        reason: "Value must be between " + min + " and " + max + "."
+      };
+    }
+
+    return {
+      ok: true,
+      value: parsed
+    };
+  }
+
+  function createActionResult(actionLabel, summary, stateChanged) {
+    return {
+      actionLabel: actionLabel,
+      summary: summary,
+      stateChanged: Boolean(stateChanged)
+    };
+  }
+
+  function applyPromptedSocialRepSet(state, key, label, presetsText) {
+    var before = getSocialValue(state, key);
+    var input = promptIntegerInput(
+      label + " Rep (0-100). Presets: " + presetsText + ".",
+      before,
+      0,
+      100
+    );
+    var after;
+
+    if (!input.ok) {
+      return createActionResult(label + " Rep", input.reason, false);
+    }
+
+    setSocialValue(state, key, input.value);
+    after = getSocialValue(state, key);
+    return createActionResult(
+      label + " Rep",
+      "Set from " + before + " to " + after + ".",
+      true
+    );
+  }
+
   function runNonResetAction(state, actionId) {
     var requirements;
     var unlockedIds;
     var unlockedNames;
     var entry;
+    var beforeMoney;
+    var beforeRep;
+    var afterRep;
+    var addMoneyInput;
+    var beforeSeason;
+    var beforeDay;
+    var beforeSlots;
+    var summerDayLimit;
 
     switch (actionId) {
+      case "add_money":
+        beforeMoney = Math.floor(Number(state.player.money) || 0);
+        addMoneyInput = promptIntegerInput(
+          "Add Money amount. Presets: 100, 1000, 10000.",
+          1000,
+          0,
+          9999999
+        );
+        if (!addMoneyInput.ok) {
+          return createActionResult("Add Money", addMoneyInput.reason, false);
+        }
+
+        state.player.money = beforeMoney + addMoneyInput.value;
+        return createActionResult(
+          "Add Money",
+          "Added " + formatMoney(addMoneyInput.value) + " (" +
+            formatMoney(beforeMoney) + " → " + formatMoney(state.player.money) + ").",
+          true
+        );
       case "add_money_100":
         state.player.money += 100;
-        return "[DEV] Added $100.";
+        return createActionResult("Add Money", "Added $100.", true);
       case "add_money_1000":
         state.player.money += 1000;
-        return "[DEV] Added $1000.";
+        return createActionResult("Add Money", "Added $1000.", true);
       case "set_rep_100":
-        if (reputation && typeof reputation.setTownReputation === "function") {
-          reputation.setTownReputation(state, 100);
-        } else {
-          state.player.reputation = reputation.clampReputation(100);
-          state.player.reputationTown = state.player.reputation;
-        }
-        return "[DEV] Town Rep set to 100.";
+        beforeRep = getTownReputationValue(state);
+        setTownReputationValue(state, 100);
+        afterRep = getTownReputationValue(state);
+        return createActionResult(
+          "Set Town Rep 100",
+          "Town Rep " + beforeRep + " → " + afterRep + ".",
+          true
+        );
+      case "set_locals_rep":
+        return applyPromptedSocialRepSet(state, "locals", "Locals", "0, 50, 60, 85, 100");
+      case "set_staff_rep":
+        return applyPromptedSocialRepSet(state, "staff", "Staff", "0, 50, 60, 85, 100");
+      case "set_summer_rep":
+        return applyPromptedSocialRepSet(state, "tourists", "Summer People", "0, 50, 80, 100");
       case "set_locals_60":
         setSocialValue(state, "locals", 60);
-        return "[DEV] Locals relationship set to 60.";
+        return createActionResult("Locals Rep", "Set from preset to 60.", true);
       case "set_locals_85":
         setSocialValue(state, "locals", 85);
-        return "[DEV] Locals relationship set to 85.";
+        return createActionResult("Locals Rep", "Set from preset to 85.", true);
       case "set_staff_60":
         setSocialValue(state, "staff", 60);
-        return "[DEV] Seasonal Staff relationship set to 60.";
+        return createActionResult("Staff Rep", "Set from preset to 60.", true);
       case "set_staff_85":
         setSocialValue(state, "staff", 85);
-        return "[DEV] Seasonal Staff relationship set to 85.";
+        return createActionResult("Staff Rep", "Set from preset to 85.", true);
       case "set_tourists_50":
         setSocialValue(state, "tourists", 50);
-        return "[DEV] Summer People relationship set to 50.";
+        return createActionResult("Summer People Rep", "Set from preset to 50.", true);
       case "set_tourists_80":
         setSocialValue(state, "tourists", 80);
-        return "[DEV] Summer People relationship set to 80.";
+        return createActionResult("Summer People Rep", "Set from preset to 80.", true);
       case "jump_job_l5_unlock":
         entry = state.jobs.list.halls_mowing_crew;
-        if (!entry) return "[DEV] Could not find Hall's Mowing Crew in jobs list.";
+        if (!entry) {
+          return createActionResult(
+            "Jump Job L5",
+            "Could not find Hall's Mowing Crew in jobs list.",
+            false
+          );
+        }
 
         entry.level = jobs.MAX_JOB_LEVEL;
         entry.promotionProgress = jobs.PROMOTION_THRESHOLD;
@@ -116,38 +270,57 @@
           return jobs.getJobName(jobId);
         });
         if (unlockedNames.length > 0) {
-          return "[DEV] Hall's Mowing Crew set to Level 5. Unlocked: " + unlockedNames.join(", ") + ".";
+          return createActionResult(
+            "Jump Job L5",
+            "Set to Level 5. Unlocked: " + unlockedNames.join(", ") + ".",
+            true
+          );
         }
-        return "[DEV] Hall's Mowing Crew set to Level 5.";
+        return createActionResult("Jump Job L5", "Set Hall's Mowing Crew to Level 5.", true);
       case "jump_shared_house_ready":
         requirements = housing.SHARED_HOUSE_REQUIREMENTS || { money: 3000, reputation: 20 };
+        beforeMoney = Math.floor(Number(state.player.money) || 0);
+        beforeRep = getTownReputationValue(state);
         state.player.money = Math.max(state.player.money, requirements.money);
-        if (reputation && typeof reputation.setTownReputation === "function") {
-          reputation.setTownReputation(
-            state,
-            Math.max(reputation.getTownReputation(state), requirements.reputation)
-          );
-        } else {
-          state.player.reputation = Math.max(state.player.reputation, requirements.reputation);
-          state.player.reputationTown = state.player.reputation;
-        }
-        return "[DEV] Set money and reputation to Shared House requirements.";
+        setTownReputationValue(
+          state,
+          Math.max(getTownReputationValue(state), requirements.reputation)
+        );
+        afterRep = getTownReputationValue(state);
+        return createActionResult(
+          "Jump Shared House Ready",
+          "Money " + formatMoney(beforeMoney) + " → " + formatMoney(state.player.money) +
+            ", Town Rep " + beforeRep + " → " + afterRep + ".",
+          true
+        );
       case "jump_sunday_night":
+        beforeDay = state.time.weekdayIndex;
+        beforeSlots = state.time.actionSlotsRemaining;
         state.time.weekdayIndex = 6;
         state.time.actionSlotsRemaining = 0;
-        return "[DEV] Time set to Sunday night. Next sleep will charge rent.";
+        return createActionResult(
+          "Jump Sunday Night",
+          "weekdayIndex " + beforeDay + " → 6, slots " + beforeSlots + " → 0.",
+          true
+        );
       case "jump_set_season_summer":
+        beforeSeason = state.time.seasonIndex;
         state.time.seasonIndex = 1;
-        if (time && typeof time.DAYS_PER_SEASON === "number") {
-          state.time.day = Math.max(1, Math.min(state.time.day, time.DAYS_PER_SEASON));
-        }
+        summerDayLimit = time && typeof time.DAYS_PER_SEASON === "number"
+          ? time.DAYS_PER_SEASON
+          : 21;
+        state.time.day = Math.max(1, Math.min(state.time.day, summerDayLimit));
         if (!state.world || typeof state.world !== "object") {
           state.world = {};
         }
         state.world.season = "summer";
-        return "[DEV] Season set to Summer.";
+        return createActionResult(
+          "Jump Set Season Summer",
+          "seasonIndex " + beforeSeason + " → 1 (Summer).",
+          true
+        );
       default:
-        return "";
+        return null;
     }
   }
 
@@ -199,6 +372,47 @@
       hooks.syncWorldSeasonFromTime :
       null;
     var economyReportViewerBindings = null;
+
+    function devLog(actionLabel, summary) {
+      onLog("[DEV] " + actionLabel + ": " + summary);
+    }
+
+    function summarizeTopIssues(entries, keyName, limit) {
+      var buckets = {};
+      var normalizedEntries = Array.isArray(entries) ? entries : [];
+      var topLimit = Math.max(1, Math.floor(limit || 3));
+      var key;
+
+      normalizedEntries.forEach(function (entry) {
+        var rawKey = entry && entry[keyName] ? String(entry[keyName]) : "unknown";
+        if (!buckets[rawKey]) {
+          buckets[rawKey] = 0;
+        }
+        buckets[rawKey] += typeof entry.count === "number" ? entry.count : 1;
+      });
+
+      return Object.keys(buckets)
+        .map(function (bucketKey) {
+          return {
+            key: bucketKey,
+            count: buckets[bucketKey]
+          };
+        })
+        .sort(function (a, b) {
+          return b.count - a.count;
+        })
+        .slice(0, topLimit);
+    }
+
+    function formatIsoForLog(rawIso) {
+      var date;
+      if (!rawIso) return "unknown";
+      date = new Date(rawIso);
+      if (Number.isNaN(date.getTime())) {
+        return String(rawIso);
+      }
+      return date.toLocaleString();
+    }
 
     function deepClone(value) {
       return JSON.parse(JSON.stringify(value));
@@ -350,22 +564,33 @@
       }
 
       return new Promise(function (resolve, reject) {
-        var elements = getEconomyReportViewerElements();
-        if (!elements || !elements.textarea) {
-          reject(new Error("Viewer textarea unavailable for fallback copy."));
+        var textarea;
+        if (!global.document || !global.document.body || typeof global.document.createElement !== "function") {
+          reject(new Error("Document unavailable for fallback copy."));
           return;
         }
-        elements.textarea.focus();
-        elements.textarea.select();
+
+        textarea = global.document.createElement("textarea");
+        textarea.value = String(value || "");
+        textarea.setAttribute("readonly", "readonly");
+        textarea.style.position = "fixed";
+        textarea.style.top = "-1000px";
+        textarea.style.left = "-1000px";
+        global.document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
         try {
           if (global.document && typeof global.document.execCommand === "function" && global.document.execCommand("copy")) {
+            global.document.body.removeChild(textarea);
             resolve();
             return;
           }
         } catch (error) {
+          global.document.body.removeChild(textarea);
           reject(error);
           return;
         }
+        global.document.body.removeChild(textarea);
         reject(new Error("Clipboard copy command failed."));
       });
     }
@@ -398,8 +623,7 @@
       var report;
 
       if (!smokeTests || typeof smokeTests.runSmokeTests !== "function") {
-        onLog("[DEV] Smoke tests module is unavailable.");
-        return true;
+        return null;
       }
 
       report = smokeTests.runSmokeTests(state, {
@@ -412,15 +636,7 @@
         requestRender: onStateChanged,
         syncWorldSeasonFromTime: syncWorldSeasonFromTime
       });
-
-      report.results.forEach(function (entry) {
-        if (entry.ok) {
-          onLog("\u2705 PASS: " + entry.name + (entry.details ? " - " + entry.details : ""));
-        } else {
-          onLog("\u274C FAIL: " + entry.name + (entry.details ? " - " + entry.details : ""));
-        }
-      });
-      onLog("SMOKE TESTS: " + report.passed + " passed, " + report.failed + " failed");
+      global.__lastSmokeTestReport = report;
 
       if (global.console && typeof global.console.groupCollapsed === "function") {
         global.console.groupCollapsed("[DEV] Smoke Tests: " + report.passed + " passed, " + report.failed + " failed");
@@ -434,17 +650,14 @@
         global.console.groupEnd();
       }
 
-      return true;
+      return report;
     }
 
     function runAutoplayAction(state, options) {
       var report;
-      var summaryLine;
-      var logPrefix = "[DEV][AUTOPLAY] ";
 
       if (!playtest || typeof playtest.runAutoplay !== "function") {
-        onLog("[DEV] Autoplay module is unavailable.");
-        return false;
+        return null;
       }
 
       report = playtest.runAutoplay(state, {
@@ -456,31 +669,12 @@
         applyJobAction: applyJobAction,
         syncWorldSeasonFromTime: syncWorldSeasonFromTime
       }, options || { days: 30, strategy: "balanced", seed: 12345, verbose: false });
-
-      report.checks.forEach(function (entry) {
-        if (entry.ok) {
-          onLog(logPrefix + "\u2705 PASS: " + entry.name + (entry.details ? " - " + entry.details : ""));
-        } else {
-          onLog(logPrefix + "\u274C FAIL: " + entry.name + (entry.details ? " - " + entry.details : ""));
-        }
-      });
-      summaryLine =
-        "AUTOPLAY: " +
-        report.passed + " passed, " +
-        report.failed + " failed" +
-        " (" + (report.metrics && report.metrics.daysPlayed ? report.metrics.daysPlayed : 0) +
-        " days, " + ((report.metrics && report.metrics.strategy) || "balanced") + ")";
-      onLog(logPrefix + summaryLine);
-
-      if (Array.isArray(report.recommendations) && report.recommendations.length > 0) {
-        onLog(logPrefix + "Top recommendations:");
-        report.recommendations.slice(0, 5).forEach(function (line, index) {
-          onLog(logPrefix + (index + 1) + ". " + line);
-        });
-      }
+      global.__lastAutoplayReport = report;
 
       if (global.console && typeof global.console.groupCollapsed === "function") {
-        global.console.groupCollapsed("[DEV] " + summaryLine);
+        global.console.groupCollapsed(
+          "[DEV] AUTOPLAY: " + report.passed + " passed, " + report.failed + " failed"
+        );
         global.console.table(report.checks);
         global.console.info("Red Flags:", report.redFlags);
         global.console.info("Recommendations:", report.recommendations);
@@ -488,7 +682,7 @@
         global.console.groupEnd();
       }
 
-      return true;
+      return report;
     }
 
     function runMessageAuditAction(state, options) {
@@ -620,8 +814,7 @@
       }
 
       if (!auditApi || !jobsApi || typeof jobsApi.getAllJobIds !== "function") {
-        onLog("[DEV][AUDIT] Message audit dependencies unavailable.");
-        return false;
+        return null;
       }
 
       jobIds = jobsApi.getAllJobIds();
@@ -684,19 +877,28 @@
       restoreState(state, originalSnapshot);
 
       var postRestoreFingerprint = JSON.stringify(state);
-      if (postRestoreFingerprint !== restoreFingerprint) {
-        onLog("[DEV][AUDIT] WARN: state restore fingerprint mismatch after audit.");
-      } else {
-        onLog("[DEV][AUDIT] State restore integrity confirmed.");
-      }
+      var topIssueCategories = summarizeTopIssues(findings, "ruleId", 3);
+      var failCount = findings.filter(function (entry) {
+        return entry.severity === "FAIL";
+      }).length;
+      var warnCount = findings.filter(function (entry) {
+        return entry.severity === "WARN";
+      }).length;
+      var report = {
+        generatedAt: new Date().toISOString(),
+        settings: settings,
+        catalogCount: catalog.length,
+        jobCount: jobIds.length,
+        findingCount: findings.length,
+        failCount: failCount,
+        warnCount: warnCount,
+        restoreIntegrityOk: postRestoreFingerprint === restoreFingerprint,
+        topIssueCategories: topIssueCategories,
+        findings: findings,
+        summaryByJob: summaryByJob
+      };
 
-      onLog("[DEV][AUDIT] Catalog entries: " + catalog.length + ".");
-      onLog("[DEV][AUDIT] Completed matrix run: " + jobIds.length + " jobs.");
-
-      jobIds.forEach(function (jobId) {
-        var bucket = summaryByJob[jobId] || { FAIL: 0, WARN: 0 };
-        onLog("[DEV][AUDIT] Job " + jobsApi.getJobName(jobId) + " — FAIL: " + bucket.FAIL + ", WARN: " + bucket.WARN);
-      });
+      global.__lastMessageAuditReport = report;
 
       if (global.console && typeof global.console.groupCollapsed === "function") {
         var grouped = {};

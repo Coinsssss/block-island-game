@@ -197,10 +197,11 @@
 
   function togglePreviewTooltips() {
     if (elements.devToolsPanel.hidden || !elements.devModeToggle.checked) {
-      return;
+      return false;
     }
 
     setPreviewTooltipsEnabled(!previewTooltipsEnabled);
+    return true;
   }
 
   function getFriendlyLogEntry(entry, state) {
@@ -1072,7 +1073,14 @@
         }
       });
     });
-    elements.previewTooltipsToggle.addEventListener("click", togglePreviewTooltips);
+    elements.previewTooltipsToggle.addEventListener("click", function () {
+      if (!togglePreviewTooltips()) {
+        return;
+      }
+      if (typeof handlers.onPreviewTooltipsChanged === "function") {
+        handlers.onPreviewTooltipsChanged(previewTooltipsEnabled);
+      }
+    });
     elements.logToggleButton.addEventListener("click", toggleLogCollapsed);
     elements.devToolsToggleButton.addEventListener("click", toggleDevToolsCollapsed);
     elements.worldToggleButton.addEventListener("click", function () {
