@@ -22,12 +22,6 @@
   function setDevModeEnabled(enabled) {
     try {
       localStorage.setItem(DEV_MODE_KEY, enabled ? "1" : "0");
-      if (!enabled && global.document && typeof global.document.getElementById === "function") {
-        var modal = global.document.getElementById("economy-report-modal");
-        if (modal) {
-          modal.hidden = true;
-        }
-      }
       return true;
     } catch (error) {
       console.warn("[Block Island] Failed to persist dev mode setting.", error);
@@ -74,12 +68,17 @@
   }
 
   function setTownReputationValue(state, value) {
+    var clamped;
+
     if (reputation && typeof reputation.setTownReputation === "function") {
       reputation.setTownReputation(state, value);
       return;
     }
 
-    state.player.reputation = reputation.clampReputation(value);
+    clamped = reputation && typeof reputation.clampReputation === "function"
+      ? reputation.clampReputation(value)
+      : clampSocialValue(value);
+    state.player.reputation = clamped;
     state.player.reputationTown = state.player.reputation;
   }
 
@@ -206,7 +205,7 @@
         return createActionResult(
           "Add Money",
           "Added " + formatMoney(addMoneyInput.value) + " (" +
-            formatMoney(beforeMoney) + " → " + formatMoney(state.player.money) + ").",
+            formatMoney(beforeMoney) + " -> " + formatMoney(state.player.money) + ").",
           true
         );
       case "add_money_100":
@@ -221,7 +220,7 @@
         afterRep = getTownReputationValue(state);
         return createActionResult(
           "Set Town Rep 100",
-          "Town Rep " + beforeRep + " → " + afterRep + ".",
+          "Town Rep " + beforeRep + " -> " + afterRep + ".",
           true
         );
       case "set_locals_rep":
@@ -289,8 +288,8 @@
         afterRep = getTownReputationValue(state);
         return createActionResult(
           "Jump Shared House Ready",
-          "Money " + formatMoney(beforeMoney) + " → " + formatMoney(state.player.money) +
-            ", Town Rep " + beforeRep + " → " + afterRep + ".",
+          "Money " + formatMoney(beforeMoney) + " -> " + formatMoney(state.player.money) +
+            ", Town Rep " + beforeRep + " -> " + afterRep + ".",
           true
         );
       case "jump_sunday_night":
@@ -300,7 +299,7 @@
         state.time.actionSlotsRemaining = 0;
         return createActionResult(
           "Jump Sunday Night",
-          "weekdayIndex " + beforeDay + " → 6, slots " + beforeSlots + " → 0.",
+          "weekdayIndex " + beforeDay + " -> 6, slots " + beforeSlots + " -> 0.",
           true
         );
       case "jump_set_season_summer":
@@ -316,7 +315,7 @@
         state.world.season = "summer";
         return createActionResult(
           "Jump Set Season Summer",
-          "seasonIndex " + beforeSeason + " → 1 (Summer).",
+          "seasonIndex " + beforeSeason + " -> 1 (Summer).",
           true
         );
       default:
@@ -371,7 +370,6 @@
     var syncWorldSeasonFromTime = hooks && typeof hooks.syncWorldSeasonFromTime === "function" ?
       hooks.syncWorldSeasonFromTime :
       null;
-    var economyReportViewerBindings = null;
 
     function devLog(actionLabel, summary) {
       onLog("[DEV] " + actionLabel + ": " + summary);
@@ -457,105 +455,8 @@
       return true;
     }
 
-    function getEconomyReportViewerElements() {
-      if (!global.document) return null;
-      return {
-        modal: global.document.getElementById("economy-report-modal"),
-        textarea: global.document.getElementById("economy-report-json"),
-        copyButton: global.document.getElementById("economy-report-copy-btn"),
-        closeButton: global.document.getElementById("economy-report-close-btn")
-      };
-    }
-
-    function detachEconomyReportViewerBindings() {
-      if (!economyReportViewerBindings) return;
-
-      if (
-        economyReportViewerBindings.elements.closeButton &&
-        economyReportViewerBindings.onCloseButtonClick
-      ) {
-        economyReportViewerBindings.elements.closeButton.removeEventListener(
-          "click",
-          economyReportViewerBindings.onCloseButtonClick
-        );
-      }
-      if (
-        economyReportViewerBindings.elements.copyButton &&
-        economyReportViewerBindings.onCopyButtonClick
-      ) {
-        economyReportViewerBindings.elements.copyButton.removeEventListener(
-          "click",
-          economyReportViewerBindings.onCopyButtonClick
-        );
-      }
-      if (
-        economyReportViewerBindings.elements.modal &&
-        economyReportViewerBindings.onBackdropClick
-      ) {
-        economyReportViewerBindings.elements.modal.removeEventListener(
-          "click",
-          economyReportViewerBindings.onBackdropClick
-        );
-      }
-
-      economyReportViewerBindings = null;
-    }
-
-    function attachEconomyReportViewerBindings(elements) {
-      var onCloseButtonClick;
-      var onCopyButtonClick;
-      var onBackdropClick;
-
-      if (!elements || !elements.modal || economyReportViewerBindings) {
-        return;
-      }
-
-      onCloseButtonClick = function () {
-        closeEconomyReportViewer();
-      };
-      onCopyButtonClick = function () {
-        copyTextToClipboard(elements.textarea.value).then(function () {
-          elements.copyButton.textContent = "Copied!";
-        }).catch(function (error) {
-          onLog("[DEV][ECON-AUDIT] Copy failed: " + (error && error.message ? error.message : String(error)));
-          if (global.console && typeof global.console.error === "function") {
-            global.console.error("[DEV][ECON-AUDIT] Copy failed", error);
-          }
-        });
-      };
-      onBackdropClick = function (event) {
-        if (event.target === elements.modal) {
-          closeEconomyReportViewer();
-        }
-      };
-
-      if (elements.closeButton) {
-        elements.closeButton.addEventListener("click", onCloseButtonClick);
-      }
-      if (elements.copyButton) {
-        elements.copyButton.addEventListener("click", onCopyButtonClick);
-      }
-      elements.modal.addEventListener("click", onBackdropClick);
-
-      economyReportViewerBindings = {
-        elements: elements,
-        onCloseButtonClick: onCloseButtonClick,
-        onCopyButtonClick: onCopyButtonClick,
-        onBackdropClick: onBackdropClick
-      };
-    }
-
     function closeEconomyReportViewer() {
-      var elements = getEconomyReportViewerElements();
-      if (!elements || !elements.modal) {
-        detachEconomyReportViewerBindings();
-        return;
-      }
-      elements.modal.hidden = true;
-      if (elements.copyButton) {
-        elements.copyButton.textContent = "Copy to Clipboard";
-      }
-      detachEconomyReportViewerBindings();
+      return;
     }
 
     function copyTextToClipboard(value) {
@@ -593,30 +494,6 @@
         global.document.body.removeChild(textarea);
         reject(new Error("Clipboard copy command failed."));
       });
-    }
-
-    function openEconomyReportViewer() {
-      var report = global.__lastEconomyAuditReport;
-      var elements = getEconomyReportViewerElements();
-      if (!report) {
-        onLog("[DEV][ECON-AUDIT] No economy report available yet. Run the audit first.");
-        return false;
-      }
-      if (!elements || !elements.modal || !elements.textarea) {
-        onLog("[DEV][ECON-AUDIT] Report viewer UI is unavailable.");
-        return false;
-      }
-
-      elements.textarea.value = JSON.stringify(report, null, 2);
-      elements.modal.hidden = false;
-      if (elements.copyButton) {
-        elements.copyButton.textContent = "Copy to Clipboard";
-      }
-      attachEconomyReportViewerBindings(elements);
-      elements.textarea.focus();
-      elements.textarea.select();
-      onLog("[DEV][ECON-AUDIT] Opened economy report viewer.");
-      return true;
     }
 
     function runSmokeTestsAction(state) {
@@ -940,7 +817,7 @@
         global.console.groupEnd();
       }
 
-      return true;
+      return report;
     }
 
     function runEconomySimulationAuditAction(state, options) {
@@ -963,7 +840,7 @@
         : 25;
 
       function auditLog(line) {
-        onLog("[DEV][ECON-AUDIT] " + line);
+        devLog("Run Economy Simulation Audit", line);
       }
 
       function formatDurationMs(durationMs) {
@@ -1155,11 +1032,13 @@
         for (var runIndex = 0; runIndex < simulationRuns; runIndex += 1) {
           runSingleSimulation(runIndex);
           if ((runIndex + 1) % progressInterval === 0 || runIndex + 1 === simulationRuns) {
-            auditLog("Progress: " + (runIndex + 1) + "/" + simulationRuns + " (elapsed " + formatDurationMs(Date.now() - startedAtMs) + ").");
             if (global.console) {
-              global.console.info("[DEV][ECON] Progress", { completedRuns: runIndex + 1, totalRuns: simulationRuns });
+              global.console.info("[DEV][ECON] Progress", {
+                completedRuns: runIndex + 1,
+                totalRuns: simulationRuns,
+                elapsed: formatDurationMs(Date.now() - startedAtMs)
+              });
             }
-            if (typeof onStateChanged === "function") onStateChanged();
           }
         }
 
@@ -1226,7 +1105,16 @@
 
     function runAction(actionId) {
       var state;
-      var message;
+      var report;
+      var previousDisableSaveFlag;
+      var archive;
+      var archiveJson;
+      var mode;
+      var nonResetResult;
+      var topCategories;
+      var failedEntries;
+      var summary;
+      var actionHandled = false;
 
       if (!isDevModeEnabled()) {
         deactivateUi();
@@ -1234,7 +1122,13 @@
       }
 
       if (actionId === "reset_save") {
-        onLog("[DEV] Resetting save and reloading.");
+        if (typeof global.confirm === "function" && !global.confirm("Reset save and reload the game?")) {
+          devLog("Reset Save", "Canceled.");
+          if (typeof onStateChanged === "function") onStateChanged();
+          return true;
+        }
+        devLog("Reset Save", "Confirmed. Clearing save and reloading.");
+        if (typeof onStateChanged === "function") onStateChanged();
         clearGameSave();
         global.location.reload();
         return true;
@@ -1244,104 +1138,236 @@
       if (!state) return false;
 
       if (actionId === "run_smoke_tests") {
-        var previousDisableSaveFlag = global.__DEV_DISABLE_SAVE;
-        var smokeOk;
-
+        actionHandled = true;
+        previousDisableSaveFlag = global.__DEV_DISABLE_SAVE;
         global.__DEV_DISABLE_SAVE = true;
         try {
-          smokeOk = runSmokeTestsAction(state);
-          if (smokeOk && typeof onStateChanged === "function") {
-            onStateChanged();
+          report = runSmokeTestsAction(state);
+          if (!report) {
+            devLog("Run Smoke Tests", "Smoke tests module unavailable.");
+          } else {
+            devLog("Run Smoke Tests", report.passed + " passed, " + report.failed + " failed.");
+            failedEntries = report.results.filter(function (entry) {
+              return !entry.ok;
+            });
+            if (failedEntries.length > 0) {
+              devLog(
+                "Run Smoke Tests",
+                "Top failures: " + failedEntries.slice(0, 3).map(function (entry) {
+                  return entry.name;
+                }).join(" | ") + "."
+              );
+            }
           }
         } finally {
           global.__DEV_DISABLE_SAVE = previousDisableSaveFlag;
         }
-        return smokeOk;
       }
 
-      if (actionId === "run_autoplay_30") {
-        var previousAutoplayDisableSaveFlag = global.__DEV_DISABLE_SAVE;
-        var autoplayOk;
-
+      if (actionId === "run_autoplay_30" && !actionHandled) {
+        actionHandled = true;
+        previousDisableSaveFlag = global.__DEV_DISABLE_SAVE;
         global.__DEV_DISABLE_SAVE = true;
         try {
-          autoplayOk = runAutoplayAction(state, {
+          report = runAutoplayAction(state, {
             days: 30,
             strategy: "balanced",
             seed: 12345,
             verbose: false
           });
-          if (autoplayOk && typeof onStateChanged === "function") {
-            onStateChanged();
+          if (!report) {
+            devLog("Run Autoplay (30 days)", "Autoplay module unavailable.");
+          } else {
+            summary =
+              report.passed + " passed, " + report.failed + " failed (" +
+              (report.metrics && report.metrics.daysPlayed ? report.metrics.daysPlayed : 0) + " days).";
+            devLog("Run Autoplay (30 days)", summary);
+            topCategories = summarizeTopIssues(report.redFlags || [], "id", 3);
+            if (topCategories.length > 0) {
+              devLog(
+                "Run Autoplay (30 days)",
+                "Top red flags: " + topCategories.map(function (entry) {
+                  return entry.key + " (" + entry.count + ")";
+                }).join(", ") + "."
+              );
+            }
           }
         } finally {
-          global.__DEV_DISABLE_SAVE = previousAutoplayDisableSaveFlag;
+          global.__DEV_DISABLE_SAVE = previousDisableSaveFlag;
         }
-        return autoplayOk;
       }
 
-      if (actionId === "run_message_audit") {
-        var previousAuditDisableSaveFlag = global.__DEV_DISABLE_SAVE;
-        var auditOk;
-
+      if (actionId === "run_message_audit" && !actionHandled) {
+        actionHandled = true;
+        previousDisableSaveFlag = global.__DEV_DISABLE_SAVE;
         global.__DEV_DISABLE_SAVE = true;
         try {
-          auditOk = runMessageAuditAction(state, {
+          report = runMessageAuditAction(state, {
             iterationsPerJob: 50,
             includeSeasonSweep: true,
             includeNeedsSweep: true
           });
-          if (auditOk && typeof onStateChanged === "function") {
-            onStateChanged();
+          if (!report) {
+            devLog("Run Message Audit", "Message audit dependencies unavailable.");
+          } else {
+            devLog(
+              "Run Message Audit",
+              report.findingCount + " issues (" + report.failCount + " FAIL, " + report.warnCount + " WARN)." +
+                " Restore integrity: " + (report.restoreIntegrityOk ? "PASS" : "FAIL") + "."
+            );
+            if (Array.isArray(report.topIssueCategories) && report.topIssueCategories.length > 0) {
+              devLog(
+                "Run Message Audit",
+                "Top issue categories: " + report.topIssueCategories.map(function (entry) {
+                  return entry.key + " (" + entry.count + ")";
+                }).join(", ") + "."
+              );
+            }
+            devLog(
+              "Run Message Audit",
+              "For full details, use window.__lastMessageAuditReport; use Message Log JSON to copy/export summary lines."
+            );
           }
         } finally {
-          global.__DEV_DISABLE_SAVE = previousAuditDisableSaveFlag;
+          global.__DEV_DISABLE_SAVE = previousDisableSaveFlag;
         }
-        return auditOk;
       }
 
-      if (actionId === "view_economy_report") {
-        return openEconomyReportViewer();
-      }
-
-      if (actionId === "export_message_log") {
-        downloadJsonFile("block-island-message-log-archive.json", stateApi.getLogArchive(state));
-        onLog("[DEV] Exported message log archive JSON.");
-        return true;
-      }
-
-      if (actionId === "clear_rendered_log") {
-        stateApi.clearRenderedLog(state);
-        onLog("[DEV] Cleared rendered message log (archive preserved).");
-        if (typeof onStateChanged === "function") onStateChanged();
-        return true;
-      }
-
-      if (actionId === "run_economy_simulation_audit") {
-        var previousEconomyAuditDisableSaveFlag = global.__DEV_DISABLE_SAVE;
-        var economyAuditOk;
-
+      if (actionId === "run_economy_simulation_audit" && !actionHandled) {
+        actionHandled = true;
+        previousDisableSaveFlag = global.__DEV_DISABLE_SAVE;
         global.__DEV_DISABLE_SAVE = true;
         try {
-          economyAuditOk = runEconomySimulationAuditAction(state, {
+          report = runEconomySimulationAuditAction(state, {
             runs: 500,
             days: 90
           });
-          if (economyAuditOk && typeof onStateChanged === "function") {
-            onStateChanged();
+          report = global.__lastEconomyAuditReport || null;
+          if (!report || !report.aggregate) {
+            devLog("Run Economy Simulation Audit", "Audit failed before report generation.");
+          } else {
+            summary = report.aggregate;
+            devLog(
+              "Run Economy Simulation Audit",
+              "runs=" + summary.runCount +
+                ", avg final=" + formatMoney(summary.averageFinalMoney) +
+                ", median=" + formatMoney(summary.medianFinalMoney) +
+                ", FAIL=" + summary.failCount + ", WARN=" + summary.warnCount + "."
+            );
+            topCategories = summarizeTopIssues(
+              (summary.failRuleLabels || []).map(function (ruleId) {
+                return { id: "FAIL:" + ruleId };
+              }).concat(
+                (summary.warnRuleLabels || []).map(function (ruleId) {
+                  return { id: "WARN:" + ruleId };
+                })
+              ),
+              "id",
+              3
+            );
+            if (topCategories.length > 0) {
+              devLog(
+                "Run Economy Simulation Audit",
+                "Top issue categories: " + topCategories.map(function (entry) {
+                  return entry.key + " (" + entry.count + ")";
+                }).join(", ") + "."
+              );
+            }
+            devLog(
+              "Run Economy Simulation Audit",
+              "Use Last Economy Report (Summary) and choose COPY/EXPORT for full JSON."
+            );
           }
         } finally {
-          global.__DEV_DISABLE_SAVE = previousEconomyAuditDisableSaveFlag;
+          global.__DEV_DISABLE_SAVE = previousDisableSaveFlag;
         }
-        return economyAuditOk;
       }
 
-      message = runNonResetAction(state, actionId);
-      if (!message) return false;
-
-      if (typeof onLog === "function") {
-        onLog(message);
+      if (actionId === "view_economy_report" && !actionHandled) {
+        actionHandled = true;
+        report = global.__lastEconomyAuditReport || null;
+        if (!report || !report.aggregate) {
+          devLog("Economy Report", "No report available. Run Economy Simulation Audit first.");
+        } else {
+          summary = report.aggregate;
+          devLog(
+            "Economy Report",
+            "Generated " + formatIsoForLog(report.generatedAt) +
+              "; runs=" + summary.runCount +
+              ", avg final=" + formatMoney(summary.averageFinalMoney) +
+              ", povertyRate=" + Number(summary.povertyLoopRatePct || 0).toFixed(1) + "%."
+          );
+          if (typeof global.prompt === "function") {
+            mode = global.prompt(
+              "Economy report JSON: type COPY, EXPORT, or NONE.",
+              "NONE"
+            );
+            mode = mode === null ? "none" : String(mode).trim().toLowerCase();
+            if (mode === "copy") {
+              copyTextToClipboard(JSON.stringify(report, null, 2)).then(function () {
+                devLog("Economy Report", "Copied report JSON to clipboard.");
+                if (typeof onStateChanged === "function") onStateChanged();
+              }).catch(function (error) {
+                devLog("Economy Report", "Copy failed: " + (error && error.message ? error.message : String(error)));
+                if (typeof onStateChanged === "function") onStateChanged();
+              });
+            } else if (mode === "export") {
+              if (downloadJsonFile("block-island-economy-audit-report.json", report)) {
+                devLog("Economy Report", "Exported report JSON.");
+              } else {
+                devLog("Economy Report", "Export failed (download API unavailable).");
+              }
+            } else {
+              devLog("Economy Report", "Full JSON not exported. Re-run and choose COPY/EXPORT.");
+            }
+          } else {
+            devLog("Economy Report", "Prompt unavailable. Use window.__lastEconomyAuditReport in console.");
+          }
+        }
       }
+
+      if (actionId === "export_message_log" && !actionHandled) {
+        actionHandled = true;
+        archive = stateApi.getLogArchive(state);
+        archiveJson = JSON.stringify(archive, null, 2);
+        mode = "export";
+        if (typeof global.prompt === "function") {
+          mode = global.prompt(
+            "Message Log JSON: type EXPORT or COPY.",
+            "EXPORT"
+          );
+          mode = mode === null ? "cancel" : String(mode).trim().toLowerCase();
+        }
+
+        if (mode === "cancel") {
+          devLog("Message Log JSON", "Canceled.");
+        } else if (mode === "copy") {
+          copyTextToClipboard(archiveJson).then(function () {
+            devLog("Message Log JSON", "Copied " + archive.length + " entries to clipboard.");
+            if (typeof onStateChanged === "function") onStateChanged();
+          }).catch(function (error) {
+            devLog("Message Log JSON", "Copy failed: " + (error && error.message ? error.message : String(error)));
+            if (typeof onStateChanged === "function") onStateChanged();
+          });
+        } else if (downloadJsonFile("block-island-message-log-archive.json", archive)) {
+          devLog("Message Log JSON", "Exported " + archive.length + " entries.");
+        } else {
+          devLog("Message Log JSON", "Export failed (download API unavailable).");
+        }
+      }
+
+      if (actionId === "clear_rendered_log" && !actionHandled) {
+        actionHandled = true;
+        stateApi.clearRenderedLog(state);
+        devLog("Clear Rendered Log", "Cleared rendered log (archive preserved).");
+      }
+
+      if (!actionHandled) {
+        nonResetResult = runNonResetAction(state, actionId);
+        if (!nonResetResult) return false;
+        devLog(nonResetResult.actionLabel, nonResetResult.summary);
+      }
+
       if (typeof onStateChanged === "function") {
         onStateChanged();
       }

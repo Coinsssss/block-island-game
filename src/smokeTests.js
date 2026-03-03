@@ -300,6 +300,24 @@
     var requestRenderHook = hooks && typeof hooks.requestRender === "function"
       ? hooks.requestRender
       : null;
+    var devModeStorageKey = ns.devtools && typeof ns.devtools.DEV_MODE_KEY === "string"
+      ? ns.devtools.DEV_MODE_KEY
+      : "blockIsland.devMode";
+    var canRestoreDevMode = false;
+    var originalDevModeEnabled = false;
+
+    if (
+      setDevModeEnabledHook &&
+      global.localStorage &&
+      typeof global.localStorage.getItem === "function"
+    ) {
+      try {
+        originalDevModeEnabled = global.localStorage.getItem(devModeStorageKey) === "1";
+        canRestoreDevMode = true;
+      } catch (error) {
+        canRestoreDevMode = false;
+      }
+    }
 
     if (ns.rng && typeof ns.rng.setSeed === "function") {
       ns.rng.setSeed(12345);
@@ -779,8 +797,12 @@
       })();
 
       (function testJobUnlockGating() {
+        var baselineSnapshot = stateApi && typeof stateApi.createInitialState === "function"
+          ? stateApi.createInitialState()
+          : originalSnapshot;
+
         function check(name, jobId, setupFn, shouldBeAvailable) {
-          var scenario = createScenarioState(originalSnapshot);
+          var scenario = createScenarioState(baselineSnapshot);
           var available;
 
           setupFn(scenario);
@@ -1460,6 +1482,14 @@
       if (ns.rng && typeof ns.rng.reset === "function") {
         ns.rng.reset();
       }
+
+      if (canRestoreDevMode) {
+        setDevModeEnabledHook(originalDevModeEnabled);
+        if (requestRenderHook) {
+          requestRenderHook();
+        }
+      }
+
       replaceStateInPlace(liveState, originalSnapshot);
       afterStateFingerprint = stableStringify(deepClone(liveState));
       addResult(
