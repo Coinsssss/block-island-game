@@ -1220,7 +1220,7 @@
 
     function deactivateUi() {
       closeEconomyReportViewer();
-      return report;
+      return true;
     }
 
 
