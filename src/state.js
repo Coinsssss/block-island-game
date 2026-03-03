@@ -95,11 +95,14 @@
       typeof content.meta.defaultSeason === "string"
       ? content.meta.defaultSeason
       : "spring";
+    var initialState;
 
     initialState = {
       season: normalizeSeason(defaultSeason, "spring"),
       events: createInitialEventsState()
     };
+
+    return initialState;
   }
 
   function createInitialEventsState() {

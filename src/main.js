@@ -13,6 +13,7 @@
   var balance = ns.balance;
   var lifestyle = ns.lifestyle;
   var devtools = ns.devtools;
+  var smokeTests = ns.smokeTests;
   var ui = ns.ui;
   var DEBUG_LOGS = false;
   var JOB_SWITCH_COOLDOWN_DAYS = 3;
@@ -118,6 +119,16 @@
         }
       )
     : null;
+
+  if (
+    devToolsApi &&
+    typeof devToolsApi.deactivateUi === "function" &&
+    devtools &&
+    typeof devtools.isDevModeEnabled === "function" &&
+    !devtools.isDevModeEnabled()
+  ) {
+    devToolsApi.deactivateUi();
+  }
 
   function logTierChangeIfNeeded(repChangeResult) {
     if (repChangeResult && repChangeResult.tierChanged) {
@@ -961,7 +972,11 @@
       return;
     }
 
-    devtools.setDevModeEnabled(Boolean(enabled));
+    enabled = Boolean(enabled);
+    devtools.setDevModeEnabled(enabled);
+    if (!enabled && devToolsApi && typeof devToolsApi.deactivateUi === "function") {
+      devToolsApi.deactivateUi();
+    }
     render();
   }
 
@@ -1098,6 +1113,52 @@
     render();
     return true;
   }
+
+  function runSmokeTestsFromMain() {
+    var previousDisableSaveFlag;
+    var report;
+
+    if (!smokeTests || typeof smokeTests.runSmokeTests !== "function") {
+      console.warn("[Block Island] Smoke tests module is unavailable.");
+      return null;
+    }
+
+    previousDisableSaveFlag = global.__DEV_DISABLE_SAVE;
+    global.__DEV_DISABLE_SAVE = true;
+    try {
+      report = smokeTests.runSmokeTests(state, {
+        runWorkAction: onWork,
+        runEatAction: onEat,
+        runSocializeAction: onSocialize,
+        runRestAction: onRest,
+        runSleepAction: onSleep,
+        setDevModeEnabled: onToggleDevMode,
+        requestRender: render,
+        syncWorldSeasonFromTime: syncWorldSeasonFromTime
+      });
+    } finally {
+      global.__DEV_DISABLE_SAVE = previousDisableSaveFlag;
+      render();
+    }
+
+    if (global.console && typeof global.console.groupCollapsed === "function") {
+      global.console.groupCollapsed(
+        "[Block Island] Smoke Tests: " + report.passed + " passed, " + report.failed + " failed"
+      );
+      report.results.forEach(function (entry) {
+        if (entry.ok) {
+          global.console.info("PASS", entry.name, entry.details || "");
+        } else {
+          global.console.error("FAIL", entry.name, entry.details || "");
+        }
+      });
+      global.console.groupEnd();
+    }
+
+    return report;
+  }
+
+  ns.runSmokeTests = runSmokeTestsFromMain;
 
   ui.initUI({
     onWork: onWork,

@@ -22,6 +22,12 @@
   function setDevModeEnabled(enabled) {
     try {
       localStorage.setItem(DEV_MODE_KEY, enabled ? "1" : "0");
+      if (!enabled && global.document && typeof global.document.getElementById === "function") {
+        var modal = global.document.getElementById("economy-report-modal");
+        if (modal) {
+          modal.hidden = true;
+        }
+      }
       return true;
     } catch (error) {
       console.warn("[Block Island] Failed to persist dev mode setting.", error);
@@ -192,6 +198,7 @@
     var syncWorldSeasonFromTime = hooks && typeof hooks.syncWorldSeasonFromTime === "function" ?
       hooks.syncWorldSeasonFromTime :
       null;
+    var economyReportViewerBindings = null;
 
     function deepClone(value) {
       return JSON.parse(JSON.stringify(value));
@@ -246,10 +253,95 @@
       };
     }
 
+    function detachEconomyReportViewerBindings() {
+      if (!economyReportViewerBindings) return;
+
+      if (
+        economyReportViewerBindings.elements.closeButton &&
+        economyReportViewerBindings.onCloseButtonClick
+      ) {
+        economyReportViewerBindings.elements.closeButton.removeEventListener(
+          "click",
+          economyReportViewerBindings.onCloseButtonClick
+        );
+      }
+      if (
+        economyReportViewerBindings.elements.copyButton &&
+        economyReportViewerBindings.onCopyButtonClick
+      ) {
+        economyReportViewerBindings.elements.copyButton.removeEventListener(
+          "click",
+          economyReportViewerBindings.onCopyButtonClick
+        );
+      }
+      if (
+        economyReportViewerBindings.elements.modal &&
+        economyReportViewerBindings.onBackdropClick
+      ) {
+        economyReportViewerBindings.elements.modal.removeEventListener(
+          "click",
+          economyReportViewerBindings.onBackdropClick
+        );
+      }
+
+      economyReportViewerBindings = null;
+    }
+
+    function attachEconomyReportViewerBindings(elements) {
+      var onCloseButtonClick;
+      var onCopyButtonClick;
+      var onBackdropClick;
+
+      if (!elements || !elements.modal || economyReportViewerBindings) {
+        return;
+      }
+
+      onCloseButtonClick = function () {
+        closeEconomyReportViewer();
+      };
+      onCopyButtonClick = function () {
+        copyTextToClipboard(elements.textarea.value).then(function () {
+          elements.copyButton.textContent = "Copied!";
+        }).catch(function (error) {
+          onLog("[DEV][ECON-AUDIT] Copy failed: " + (error && error.message ? error.message : String(error)));
+          if (global.console && typeof global.console.error === "function") {
+            global.console.error("[DEV][ECON-AUDIT] Copy failed", error);
+          }
+        });
+      };
+      onBackdropClick = function (event) {
+        if (event.target === elements.modal) {
+          closeEconomyReportViewer();
+        }
+      };
+
+      if (elements.closeButton) {
+        elements.closeButton.addEventListener("click", onCloseButtonClick);
+      }
+      if (elements.copyButton) {
+        elements.copyButton.addEventListener("click", onCopyButtonClick);
+      }
+      elements.modal.addEventListener("click", onBackdropClick);
+
+      economyReportViewerBindings = {
+        elements: elements,
+        onCloseButtonClick: onCloseButtonClick,
+        onCopyButtonClick: onCopyButtonClick,
+        onBackdropClick: onBackdropClick
+      };
+    }
+
     function closeEconomyReportViewer() {
       var elements = getEconomyReportViewerElements();
-      if (!elements || !elements.modal) return;
+      if (!elements || !elements.modal) {
+        detachEconomyReportViewerBindings();
+        return;
+      }
       elements.modal.hidden = true;
+      if (elements.copyButton) {
+        elements.copyButton.textContent = "Copy to Clipboard";
+      }
+      detachEconomyReportViewerBindings();
     }
 
     function copyTextToClipboard(value) {
@@ -295,29 +387,7 @@
       if (elements.copyButton) {
         elements.copyButton.textContent = "Copy to Clipboard";
       }
-      if (!elements.modal.getAttribute("data-initialized")) {
-        if (elements.closeButton) {
-          elements.closeButton.addEventListener("click", closeEconomyReportViewer);
-        }
-        if (elements.copyButton) {
-          elements.copyButton.addEventListener("click", function () {
-            copyTextToClipboard(elements.textarea.value).then(function () {
-              elements.copyButton.textContent = "Copied!";
-            }).catch(function (error) {
-              onLog("[DEV][ECON-AUDIT] Copy failed: " + (error && error.message ? error.message : String(error)));
-              if (global.console && typeof global.console.error === "function") {
-                global.console.error("[DEV][ECON-AUDIT] Copy failed", error);
-              }
-            });
-          });
-        }
-        elements.modal.addEventListener("click", function (event) {
-          if (event.target === elements.modal) {
-            closeEconomyReportViewer();
-          }
-        });
-        elements.modal.setAttribute("data-initialized", "true");
-      }
+      attachEconomyReportViewerBindings(elements);
       elements.textarea.focus();
       elements.textarea.select();
       onLog("[DEV][ECON-AUDIT] Opened economy report viewer.");
@@ -334,8 +404,12 @@
 
       report = smokeTests.runSmokeTests(state, {
         runWorkAction: runWorkAction,
+        runEatAction: runEatAction,
         runSocializeAction: runSocializeAction,
+        runRestAction: runRestAction,
         runSleepAction: runSleepAction,
+        setDevModeEnabled: setDevModeEnabled,
+        requestRender: onStateChanged,
         syncWorldSeasonFromTime: syncWorldSeasonFromTime
       });
 
@@ -942,12 +1016,18 @@
     }
 
 
+    function deactivateUi() {
+      closeEconomyReportViewer();
+      return true;
+    }
+
 
     function runAction(actionId) {
       var state;
       var message;
 
       if (!isDevModeEnabled()) {
+        deactivateUi();
         return false;
       }
 
@@ -1067,7 +1147,8 @@
     }
 
     return {
-      runAction: runAction
+      runAction: runAction,
+      deactivateUi: deactivateUi
     };
   }
 

@@ -227,6 +227,45 @@
     }
   }
 
+  function getRenderedLogEntries(targetState) {
+    if (!targetState || typeof targetState !== "object") {
+      return [];
+    }
+
+    if (Array.isArray(targetState.logRendered)) {
+      return targetState.logRendered;
+    }
+
+    if (Array.isArray(targetState.log)) {
+      return targetState.log;
+    }
+
+    return [];
+  }
+
+  function getRenderedLogSlice(targetState, fromIndex) {
+    var entries = getRenderedLogEntries(targetState);
+    var startIndex = typeof fromIndex === "number" && !Number.isNaN(fromIndex)
+      ? Math.max(0, Math.floor(fromIndex))
+      : 0;
+
+    return entries.slice(startIndex);
+  }
+
+  function clearRenderedLogEntries(targetState) {
+    if (!targetState || typeof targetState !== "object") {
+      return;
+    }
+
+    if (stateApi && typeof stateApi.clearRenderedLog === "function") {
+      stateApi.clearRenderedLog(targetState);
+      return;
+    }
+
+    targetState.logRendered = [];
+    targetState.log = targetState.logRendered;
+  }
+
   function createScenarioState(snapshot) {
     if (stateApi && typeof stateApi.createStateFromSave === "function") {
       return stateApi.createStateFromSave(deepClone(snapshot));
@@ -243,6 +282,9 @@
     var runWorkAction = hooks && typeof hooks.runWorkAction === "function"
       ? hooks.runWorkAction
       : null;
+    var runEatAction = hooks && typeof hooks.runEatAction === "function"
+      ? hooks.runEatAction
+      : null;
     var runSocializeAction = hooks && typeof hooks.runSocializeAction === "function"
       ? hooks.runSocializeAction
       : null;
@@ -251,6 +293,12 @@
       : null;
     var syncHook = hooks && typeof hooks.syncWorldSeasonFromTime === "function"
       ? hooks.syncWorldSeasonFromTime
+      : null;
+    var setDevModeEnabledHook = hooks && typeof hooks.setDevModeEnabled === "function"
+      ? hooks.setDevModeEnabled
+      : null;
+    var requestRenderHook = hooks && typeof hooks.requestRender === "function"
+      ? hooks.requestRender
       : null;
 
     if (ns.rng && typeof ns.rng.setSeed === "function") {
@@ -441,6 +489,58 @@
         );
       })();
 
+      (function testDevOverlayInertWhenDevModeOff() {
+        var doc = global.document;
+        var modal;
+        var panel;
+        var style;
+        var failures = [];
+
+        if (
+          !doc ||
+          typeof doc.getElementById !== "function" ||
+          !setDevModeEnabledHook ||
+          !requestRenderHook
+        ) {
+          addResult(
+            results,
+            "Dev overlays inert when Dev Mode OFF",
+            true,
+            "skipped: DOM/dev-mode hooks unavailable"
+          );
+          return;
+        }
+
+        setDevModeEnabledHook(false);
+        requestRenderHook();
+
+        modal = doc.getElementById("economy-report-modal");
+        panel = doc.getElementById("dev-tools-panel");
+
+        if (panel && panel.hidden !== true) {
+          failures.push("dev-tools-panel should be hidden");
+        }
+
+        if (modal) {
+          if (modal.hidden !== true) {
+            failures.push("economy-report-modal should be hidden");
+          }
+          if (typeof global.getComputedStyle === "function") {
+            style = global.getComputedStyle(modal);
+            if (style && style.display !== "none" && style.pointerEvents !== "none") {
+              failures.push("economy-report-modal can still receive pointer events");
+            }
+          }
+        }
+
+        addResult(
+          results,
+          "Dev overlays inert when Dev Mode OFF",
+          failures.length === 0,
+          failures.length === 0 ? "dev overlays hidden/inert" : failures.join("; ")
+        );
+      })();
+
       (function testEventsRegistry() {
         var registry = events && typeof events.getDailyEventDefinitions === "function"
           ? events.getDailyEventDefinitions()
@@ -523,6 +623,123 @@
           "Sleep loop stability (30 days)",
           success && endDayNumber > startDayNumber && hasEventsState,
           "dayDelta=" + (endDayNumber - startDayNumber) + ", eventsState=" + hasEventsState
+        );
+      })();
+
+      (function testCoreActionLoopSanity() {
+        var workMoneyBefore;
+        var workMoneyAfter;
+        var workSlotsBefore;
+        var workSlotsAfter;
+        var eatMoneyBefore;
+        var eatMoneyAfter;
+        var hungerBefore;
+        var hungerAfter;
+        var socializeTownBefore;
+        var socializeBarBefore;
+        var socializeLocalsBefore;
+        var socializeStaffBefore;
+        var socializeSummerBefore;
+        var socializeLocalsAfter;
+        var socializeStaffAfter;
+        var socializeSummerAfter;
+        var socializeRepChanged;
+        var dayBeforeSleep;
+        var dayAfterSleep;
+        var sleepSlotsAfter;
+        var failures = [];
+
+        if (!runWorkAction || !runEatAction || !runSocializeAction || !runSleepAction) {
+          addResult(
+            results,
+            "Core action loop sanity",
+            false,
+            "missing one or more action hooks"
+          );
+          return;
+        }
+
+        if (!liveState.jobs.unlocked || typeof liveState.jobs.unlocked !== "object") {
+          liveState.jobs.unlocked = {};
+        }
+        liveState.jobs.unlocked.halls_mowing_crew = true;
+        jobs.setActiveJob(liveState, "halls_mowing_crew");
+        liveState.jobs.workedToday = false;
+        liveState.player.money = Math.max(2000, liveState.player.money);
+        liveState.player.needs.hunger = 25;
+        liveState.player.needs.energy = 80;
+        liveState.player.needs.social = 70;
+        setTownRep(liveState, Math.max(10, getTownRep(liveState)));
+        setBarRep(liveState, Math.max(5, getBarRep(liveState)));
+        setRelationshipValue(liveState, "locals", 20);
+        syncSeasonFromTime(liveState, syncHook);
+
+        liveState.time.actionSlotsRemaining = time.MAX_ACTION_SLOTS;
+        workSlotsBefore = liveState.time.actionSlotsRemaining;
+        workMoneyBefore = liveState.player.money;
+        runWorkAction();
+        workMoneyAfter = liveState.player.money;
+        workSlotsAfter = liveState.time.actionSlotsRemaining;
+        if (!(workMoneyAfter > workMoneyBefore)) {
+          failures.push("work did not increase money");
+        }
+        if (!(workSlotsAfter < workSlotsBefore)) {
+          failures.push("work did not consume an action slot");
+        }
+
+        liveState.time.actionSlotsRemaining = time.MAX_ACTION_SLOTS;
+        liveState.player.needs.hunger = 15;
+        eatMoneyBefore = liveState.player.money;
+        hungerBefore = liveState.player.needs.hunger;
+        runEatAction();
+        eatMoneyAfter = liveState.player.money;
+        hungerAfter = liveState.player.needs.hunger;
+        if (!(eatMoneyAfter < eatMoneyBefore)) {
+          failures.push("eat did not reduce money");
+        }
+        if (!(hungerAfter > hungerBefore)) {
+          failures.push("eat did not increase hunger");
+        }
+
+        liveState.time.actionSlotsRemaining = time.MAX_ACTION_SLOTS;
+        socializeTownBefore = getTownRep(liveState);
+        socializeBarBefore = getBarRep(liveState);
+        socializeLocalsBefore = getRelationshipValue(liveState, "locals");
+        socializeStaffBefore = getRelationshipValue(liveState, "staff");
+        socializeSummerBefore = getRelationshipValue(liveState, "summerPeople");
+        runSocializeAction();
+        socializeLocalsAfter = getRelationshipValue(liveState, "locals");
+        socializeStaffAfter = getRelationshipValue(liveState, "staff");
+        socializeSummerAfter = getRelationshipValue(liveState, "summerPeople");
+        socializeRepChanged =
+          getTownRep(liveState) !== socializeTownBefore ||
+          getBarRep(liveState) !== socializeBarBefore ||
+          socializeLocalsAfter !== socializeLocalsBefore ||
+          socializeStaffAfter !== socializeStaffBefore ||
+          socializeSummerAfter !== socializeSummerBefore;
+        if (!socializeRepChanged) {
+          failures.push("socialize did not change reputation/relationships");
+        }
+
+        liveState.time.actionSlotsRemaining = 0;
+        dayBeforeSleep = getDayNumberForState(liveState);
+        runSleepAction();
+        dayAfterSleep = getDayNumberForState(liveState);
+        sleepSlotsAfter = liveState.time.actionSlotsRemaining;
+        if (!(dayAfterSleep > dayBeforeSleep)) {
+          failures.push("sleep did not advance day");
+        }
+        if (sleepSlotsAfter !== time.MAX_ACTION_SLOTS) {
+          failures.push("sleep did not reset action slots");
+        }
+
+        addResult(
+          results,
+          "Core action loop sanity",
+          failures.length === 0,
+          failures.length === 0
+            ? "work/eat/socialize/sleep behaved as expected"
+            : failures.join("; ")
         );
       })();
 
@@ -926,17 +1143,17 @@
         jobs.setActiveJob(liveState, "captain_nicks_bartender");
         liveState.jobs.workedToday = false;
         liveState.time.actionSlotsRemaining = time.MAX_ACTION_SLOTS;
-        liveState.log = [];
-        scenarioLogLength = Array.isArray(liveState.log) ? liveState.log.length : 0;
+        clearRenderedLogEntries(liveState);
+        scenarioLogLength = getRenderedLogEntries(liveState).length;
 
         runWorkAction();
 
-        logsSince = Array.isArray(liveState.log) ? liveState.log.slice(scenarioLogLength) : [];
+        logsSince = getRenderedLogSlice(liveState, scenarioLogLength);
         hasShiftLine = logsSince.some(function (entry) {
           return /shift at/i.test(String(entry));
         });
         hasBaseWorkLine = logsSince.some(function (entry) {
-          return /worked your shift and earned/i.test(String(entry));
+          return /worked your shift.*earned/i.test(String(entry));
         });
 
         addResult(
@@ -1072,11 +1289,11 @@
         }
         liveState.jobs.unlocked[tipsJobId] = true;
         jobs.setActiveJob(liveState, tipsJobId);
-        liveState.log = [];
+        clearRenderedLogEntries(liveState);
 
         tipsBefore = liveState.stats.lifetimeEarningsBySource.tips;
         jobsBefore = liveState.stats.lifetimeEarningsBySource.jobs;
-        logStart = Array.isArray(liveState.log) ? liveState.log.length : 0;
+        logStart = getRenderedLogEntries(liveState).length;
 
         for (i = 0; i < SMOKE_TEST_WORK_SHIFTS; i += 1) {
           liveState.jobs.workedToday = false;
@@ -1086,9 +1303,14 @@
 
         tipsAfter = liveState.stats.lifetimeEarningsBySource.tips;
         jobsAfter = liveState.stats.lifetimeEarningsBySource.jobs;
-        logsSince = Array.isArray(liveState.log) ? liveState.log.slice(logStart) : [];
+        logsSince = getRenderedLogSlice(liveState, logStart);
         sawTipLog = logsSince.some(function (entry) {
-          return String(entry).indexOf("You received $") >= 0;
+          var text = String(entry);
+          return (
+            /you received \$\d+/i.test(text) ||
+            /left you \$\d+/i.test(text) ||
+            /added a \$\d+ bonus/i.test(text)
+          );
         });
 
         addResult(
@@ -1841,7 +2063,7 @@
         }
 
         beforeSleepDay = getDayNumberForState(liveState);
-        beforeSleepLogLen = Array.isArray(liveState.log) ? liveState.log.length : 0;
+        beforeSleepLogLen = getRenderedLogEntries(liveState).length;
         sleepResult = runAutoplayAction(
           "sleep",
           runSleepAction,
@@ -1855,9 +2077,7 @@
           addOrIncrementFlag(redFlags, "sleep_no_day_advance", "Sleep did not advance day progression.");
         }
 
-        afterSleepLogs = Array.isArray(liveState.log)
-          ? liveState.log.slice(beforeSleepLogLen)
-          : [];
+        afterSleepLogs = getRenderedLogSlice(liveState, beforeSleepLogLen);
         rentSignal = collectRentLogSignal(afterSleepLogs);
         if (liveState.time && liveState.time.weekdayIndex === 0) {
           metrics.rent.expectedMondays += 1;
