@@ -3,6 +3,7 @@
   var worldMap = ns.worldMap;
   var worldPlayer = ns.worldPlayer;
   var worldNpcs = ns.worldNpcs;
+  var worldFarming = ns.worldFarming;
   var worldTime = ns.worldTime;
   var worldInteractions = ns.worldInteractions;
   var worldSimulation = ns.worldSimulation;
@@ -42,6 +43,8 @@
     var hintValue = global.document.getElementById("world-hint-value");
     var feedbackValue = global.document.getElementById("world-feedback-value");
     var standValue = global.document.getElementById("world-stand-value");
+    var toolValue = global.document.getElementById("world-tool-value");
+    var bagValue = global.document.getElementById("world-bag-value");
     var hungerValue = global.document.getElementById("world-hunger-value");
     var energyValue = global.document.getElementById("world-energy-value");
     var moodValue = global.document.getElementById("world-mood-value");
@@ -260,6 +263,9 @@
     }
 
     function onKeyDown(event) {
+      var state;
+      var equippedToolId;
+
       if (!event || isFormLikeElement(event.target)) return;
 
       if (
@@ -267,6 +273,29 @@
         (event.code === "KeyE" || event.code === "Escape")
       ) {
         closeDialogue();
+        event.preventDefault();
+        return;
+      }
+
+      state = getState();
+      if (
+        state &&
+        worldFarming &&
+        !event.repeat &&
+        (event.code === "KeyQ" || worldFarming.getToolIdForHotkey(event.code))
+      ) {
+        equippedToolId = event.code === "KeyQ"
+          ? worldFarming.cycleEquippedTool(state, 1)
+          : worldFarming.equipTool(state, worldFarming.getToolIdForHotkey(event.code));
+        setFeedback(
+          { feedback: feedbackValue },
+          "Equipped " + worldFarming.getToolLabel(equippedToolId) + "."
+        );
+        feedbackTimeoutMs = 1800;
+        markAutosavePending();
+        if (options && typeof options.requestRender === "function") {
+          options.requestRender();
+        }
         event.preventDefault();
         return;
       }
@@ -434,6 +463,7 @@
       var hint;
       var locationName;
       var standLabel;
+      var equippedToolId;
 
       if (!state) return;
 
@@ -474,6 +504,15 @@
       if (standValue) {
         standValue.textContent = standLabel;
       }
+      if (worldFarming) {
+        equippedToolId = worldFarming.getEquippedToolId(state);
+        if (toolValue) {
+          toolValue.textContent = worldFarming.getToolLabel(equippedToolId);
+        }
+        if (bagValue) {
+          bagValue.textContent = worldFarming.getInventorySummary(state);
+        }
+      }
       if (state.player && state.player.needs) {
         if (hungerValue) hungerValue.textContent = String(Math.round(state.player.needs.hunger));
         if (energyValue) energyValue.textContent = String(Math.round(state.player.needs.energy));
@@ -485,19 +524,30 @@
       var nearbyNpc = worldNpcs && typeof worldNpcs.getNearestNpc === "function"
         ? worldNpcs.getNearestNpc(npcs, player, 72)
         : null;
+      var nearbyPlot = worldFarming && typeof worldFarming.getNearestPlot === "function"
+        ? worldFarming.getNearestPlot(state, map, player, 72)
+        : null;
       var nearbyInteractable = worldInteractions && typeof worldInteractions.getNearestInteractable === "function"
         ? worldInteractions.getNearestInteractable(map, player, 72)
         : null;
       var highlightedNpcId = nearbyNpc ? nearbyNpc.id : "";
-      var highlightedInteractableId = highlightedNpcId ? "" : (nearbyInteractable ? nearbyInteractable.id : "");
+      var highlightedPlotId = highlightedNpcId ? "" : (nearbyPlot ? nearbyPlot.id : "");
+      var highlightedInteractableId = highlightedNpcId || highlightedPlotId
+        ? ""
+        : (nearbyInteractable ? nearbyInteractable.id : "");
       var areaLabel = worldMap && typeof worldMap.getLocationNameAtPosition === "function"
         ? worldMap.getLocationNameAtPosition(map, player.x, player.y)
         : "Island Road";
 
       worldRenderer.renderFrame(canvas, context2d, map, player, npcs, {
         highlightedNpcId: highlightedNpcId,
+        highlightedPlotId: highlightedPlotId,
         highlightedInteractableId: highlightedInteractableId,
-        areaLabel: areaLabel
+        areaLabel: areaLabel,
+        farmPlots: worldFarming && typeof worldFarming.getRenderablePlots === "function"
+          ? worldFarming.getRenderablePlots(state, map)
+          : [],
+        state: state
       });
 
       updateHud(state);

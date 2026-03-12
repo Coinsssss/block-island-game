@@ -18,6 +18,13 @@
     facingX: 0,
     facingY: 1
   };
+  var DEFAULT_INVENTORY = {
+    hoe: 1,
+    watering_can: 1,
+    turnip_seeds: 6,
+    turnip: 0
+  };
+  var DEFAULT_EQUIPPED_TOOL_ID = "hoe";
 
   function ensurePath(obj, pathArray, defaultValue) {
     var current = obj;
@@ -196,6 +203,42 @@
     }
 
     return overworld;
+  }
+
+  function createInitialInventory() {
+    return {
+      hoe: DEFAULT_INVENTORY.hoe,
+      watering_can: DEFAULT_INVENTORY.watering_can,
+      turnip_seeds: DEFAULT_INVENTORY.turnip_seeds,
+      turnip: DEFAULT_INVENTORY.turnip
+    };
+  }
+
+  function normalizeInventory(rawInventory) {
+    var inventory = createInitialInventory();
+
+    if (!rawInventory || typeof rawInventory !== "object") {
+      return inventory;
+    }
+
+    Object.keys(inventory).forEach(function (itemId) {
+      if (typeof rawInventory[itemId] === "number" && !Number.isNaN(rawInventory[itemId])) {
+        inventory[itemId] = Math.max(0, Math.floor(rawInventory[itemId]));
+      }
+    });
+
+    return inventory;
+  }
+
+  function normalizeEquippedToolId(rawToolId, inventory) {
+    var candidate = typeof rawToolId === "string" ? rawToolId : DEFAULT_EQUIPPED_TOOL_ID;
+    var sourceInventory = inventory && typeof inventory === "object" ? inventory : createInitialInventory();
+
+    if (Object.prototype.hasOwnProperty.call(sourceInventory, candidate)) {
+      return candidate;
+    }
+
+    return DEFAULT_EQUIPPED_TOOL_ID;
   }
 
   function normalizeStandState(rawStand) {
@@ -555,6 +598,8 @@
         reputationTown: initialTownRep,
         reputationBar: 0,
         needs: needs.createInitialNeeds(),
+        inventory: createInitialInventory(),
+        equippedToolId: DEFAULT_EQUIPPED_TOOL_ID,
         social: relationships,
         lifestyle: lifestyle && typeof lifestyle.normalizeLifestyle === "function"
           ? lifestyle.normalizeLifestyle()
@@ -655,6 +700,11 @@
         state.player.reputationBar = reputation.clampReputation(savedBarRep);
       }
       state.player.needs = needs.normalizeNeeds(raw.player.needs);
+      state.player.inventory = normalizeInventory(raw.player.inventory);
+      state.player.equippedToolId = normalizeEquippedToolId(
+        raw.player.equippedToolId,
+        state.player.inventory
+      );
       if (lifestyle && typeof lifestyle.normalizeLifestyle === "function") {
         state.player.lifestyle = lifestyle.normalizeLifestyle(raw.player.lifestyle);
       } else if (
@@ -740,6 +790,15 @@
     ensurePath(state, ["player", "money"], 0);
     ensurePath(state, ["player", "energy"], 100);
     ensurePath(state, ["player", "mood"], 100);
+    if (!state.player.inventory || typeof state.player.inventory !== "object") {
+      state.player.inventory = createInitialInventory();
+    } else {
+      state.player.inventory = normalizeInventory(state.player.inventory);
+    }
+    state.player.equippedToolId = normalizeEquippedToolId(
+      state.player.equippedToolId,
+      state.player.inventory
+    );
     ensurePath(state, ["world", "season"], "spring");
     ensurePath(state, ["world", "day"], currentDayNumberFromTime);
     state.world.day = currentDayNumberFromTime;
@@ -845,6 +904,8 @@ function ensureMessageLogState(state) {
     normalizeStandState: normalizeStandState,
     createInitialOverworldState: createInitialOverworldState,
     normalizeOverworldState: normalizeOverworldState,
+    createInitialInventory: createInitialInventory,
+    normalizeInventory: normalizeInventory,
     createInitialStatsState: createInitialStatsState,
     normalizeStatsState: normalizeStatsState,
     createInitialFlagsState: createInitialFlagsState,

@@ -1,6 +1,7 @@
 (function (global) {
   var ns = global.BlockIsland = global.BlockIsland || {};
   var worldMap = ns.worldMap;
+  var worldFarming = ns.worldFarming;
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
@@ -83,6 +84,48 @@
         0,
         Math.PI * 2
       );
+      ctx.fill();
+    });
+  }
+
+  function drawFarmPlots(ctx, farmPlots, camera, highlightedPlotId) {
+    if (!Array.isArray(farmPlots) || farmPlots.length <= 0) return;
+
+    farmPlots.forEach(function (plot) {
+      var x = toScreenX(plot.x, camera);
+      var y = toScreenY(plot.y, camera);
+      var isHighlighted = highlightedPlotId && highlightedPlotId === plot.id;
+
+      ctx.fillStyle = plot.tilled ? "#8d6544" : "rgba(74, 118, 68, 0.28)";
+      ctx.fillRect(x, y, plot.width, plot.height);
+
+      ctx.strokeStyle = isHighlighted ? "#f7a800" : "rgba(18, 32, 47, 0.38)";
+      ctx.lineWidth = isHighlighted ? 3 : 2;
+      ctx.strokeRect(x, y, plot.width, plot.height);
+
+      if (plot.watered) {
+        ctx.fillStyle = "rgba(88, 153, 214, 0.28)";
+        ctx.fillRect(x + 4, y + 4, plot.width - 8, plot.height - 8);
+      }
+
+      if (!plot.cropId) {
+        return;
+      }
+
+      if (plot.readyToHarvest) {
+        ctx.fillStyle = "#d68b2f";
+        ctx.beginPath();
+        ctx.arc(x + (plot.width / 2), y + (plot.height / 2), 12, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#4f7f38";
+        ctx.fillRect(x + (plot.width / 2) - 3, y + 8, 6, 16);
+        return;
+      }
+
+      ctx.fillStyle = plot.growthStage >= 1 ? "#4f8a3f" : "#78a95e";
+      ctx.beginPath();
+      ctx.arc(x + (plot.width / 2), y + (plot.height / 2), 7 + (plot.growthStage * 3), 0, Math.PI * 2);
       ctx.fill();
     });
   }
@@ -188,10 +231,16 @@
   function renderFrame(canvas, context2d, map, player, npcs, options) {
     var camera;
     var highlightedNpcId = options && options.highlightedNpcId ? options.highlightedNpcId : "";
+    var highlightedPlotId = options && options.highlightedPlotId ? options.highlightedPlotId : "";
     var highlightedInteractableId = options && options.highlightedInteractableId
       ? options.highlightedInteractableId
       : "";
     var areaLabel = options && options.areaLabel ? options.areaLabel : "";
+    var farmPlots = options && Array.isArray(options.farmPlots)
+      ? options.farmPlots
+      : (worldFarming && typeof worldFarming.getRenderablePlots === "function"
+        ? worldFarming.getRenderablePlots(options.state, map)
+        : []);
 
     if (!canvas || !context2d || !map || !player) {
       return;
@@ -201,6 +250,7 @@
     drawBackground(context2d, canvas);
     drawWater(context2d, map, camera);
     drawRoads(context2d, map, camera);
+    drawFarmPlots(context2d, farmPlots, camera, highlightedPlotId);
     drawTrees(context2d, map, camera);
     drawBuildings(context2d, map, camera);
     drawInteractables(context2d, map, camera, highlightedInteractableId);

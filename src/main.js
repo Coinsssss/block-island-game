@@ -15,6 +15,7 @@
   var devtools = ns.devtools;
   var smokeTests = ns.smokeTests;
   var worldSimulation = ns.worldSimulation;
+  var worldFarming = ns.worldFarming;
   var ui = ns.ui;
   var DEBUG_LOGS = false;
   var JOB_SWITCH_COOLDOWN_DAYS = 3;
@@ -920,6 +921,9 @@
     }
     syncWorldSeasonFromTime();
     syncWorldDayFromTime();
+    if (worldFarming && typeof worldFarming.advanceCropsForNewDay === "function") {
+      worldFarming.advanceCropsForNewDay(state);
+    }
     applyLifestyleSleepPassiveEffects();
     jobs.resetDailyWorkFlag(state);
 

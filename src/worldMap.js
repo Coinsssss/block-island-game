@@ -76,7 +76,13 @@
       { x: 1260, y: 1040, radius: 30 },
       { x: 1640, y: 1030, radius: 28 },
       { x: 420, y: 560, radius: 32 },
-      { x: 610, y: 430, radius: 30 }
+      { x: 660, y: 430, radius: 30 }
+    ],
+    farmPlots: [
+      { id: "home_plot_1", x: 470, y: 930, width: 54, height: 54 },
+      { id: "home_plot_2", x: 534, y: 930, width: 54, height: 54 },
+      { id: "home_plot_3", x: 470, y: 994, width: 54, height: 54 },
+      { id: "home_plot_4", x: 534, y: 994, width: 54, height: 54 }
     ],
     colliders: [
       { x: 1080, y: 250, width: 420, height: 260 },
@@ -147,6 +153,14 @@
       }
     ],
     locations: [
+      {
+        id: "home_garden",
+        name: "Home Garden",
+        x: 430,
+        y: 880,
+        width: 200,
+        height: 220
+      },
       {
         id: "housing",
         name: "Employee Housing",

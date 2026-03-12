@@ -4,6 +4,7 @@
   var worldMap = ns.worldMap;
   var worldTime = ns.worldTime;
   var worldNpcs = ns.worldNpcs;
+  var worldFarming = ns.worldFarming;
 
   var INTERACTION_DISTANCE = 72;
   var DEFAULT_STARTER_JOB_ID = "halls_mowing_crew";
@@ -71,7 +72,7 @@
     return typeof actionFn === "function" ? Boolean(actionFn()) : false;
   }
 
-  function spendTimeForAction(state, actionId, success) {
+  function spendTimeForAction(state, actionId, success, explicitMinutes) {
     if (!success) {
       return {
         minutesSpent: 0,
@@ -86,7 +87,7 @@
       };
     }
 
-    return worldTime.spendActionTime(state, actionId);
+    return worldTime.spendActionTime(state, actionId, explicitMinutes);
   }
 
   function interactWithNpc(context, npc) {
@@ -288,11 +289,54 @@
     return { handled: true, success: false, message: "Nothing happened." };
   }
 
+  function interactWithPlot(context, plot) {
+    var result;
+    var timeResult;
+
+    if (!worldFarming || typeof worldFarming.interactWithPlot !== "function") {
+      return {
+        handled: false,
+        success: false,
+        message: ""
+      };
+    }
+
+    result = worldFarming.interactWithPlot(context, plot);
+    if (!result || !result.handled) {
+      return {
+        handled: false,
+        success: false,
+        message: ""
+      };
+    }
+
+    timeResult = spendTimeForAction(
+      context.state,
+      result.actionId || "farm",
+      result.success,
+      result.minutesCost
+    );
+
+    result.timeAdvancedMinutes = timeResult.minutesSpent;
+    result.reachedEndOfDay = timeResult.reachedEndOfDay;
+    return result;
+  }
+
   function getNearbyTarget(state, player, map, npcs) {
+    var plot = worldFarming && typeof worldFarming.getNearestPlot === "function"
+      ? worldFarming.getNearestPlot(state, map, player, INTERACTION_DISTANCE)
+      : null;
     var npc = worldNpcs && typeof worldNpcs.getNearestNpc === "function"
       ? worldNpcs.getNearestNpc(npcs, player, INTERACTION_DISTANCE)
       : null;
     var interactable = getNearestInteractable(map, player, INTERACTION_DISTANCE);
+
+    if (plot) {
+      return {
+        kind: "plot",
+        plot: plot
+      };
+    }
 
     if (npc) {
       return {
@@ -326,6 +370,10 @@
       return interactWithNpc(context, target.npc);
     }
 
+    if (target.kind === "plot") {
+      return interactWithPlot(context, target.plot);
+    }
+
     return interactWithLocation(context, target.interactable);
   }
 
@@ -333,11 +381,17 @@
     var target = getNearbyTarget(state, player, map, npcs);
 
     if (!target) {
-      return "Move with WASD/Arrows. Press E to interact.";
+      return "Move with WASD/Arrows. Press E to interact. Q or 1-3 switches tools.";
     }
 
     if (target.kind === "npc") {
       return "Press E to talk to " + target.npc.name + ".";
+    }
+
+    if (target.kind === "plot") {
+      return worldFarming && typeof worldFarming.getPlotHint === "function"
+        ? worldFarming.getPlotHint(state, worldFarming.getPlotState(state, map, target.plot.id), target.plot)
+        : "Press E to work this plot.";
     }
 
     return target.interactable.prompt || "Press E to interact.";
