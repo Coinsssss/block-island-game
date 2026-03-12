@@ -37,6 +37,20 @@
         </div>
       </section>
 
+      <section class="panel overworld-panel">
+        <h2 class="section-title">Overworld</h2>
+        <div class="overworld-shell">
+          <canvas id="world-canvas" width="960" height="540" aria-label="Block Island overworld"></canvas>
+          <div class="overworld-hud">
+            <p><strong>Clock:</strong> <span id="world-clock-value">08:00</span></p>
+            <p><strong>Time:</strong> <span id="world-segment-value">Morning</span></p>
+            <p><strong>Area:</strong> <span id="world-location-value">Employee Housing</span></p>
+            <p class="helper-text" id="world-hint-value">Move with WASD/Arrows. Press E to interact.</p>
+            <p class="helper-text" id="world-feedback-value"></p>
+          </div>
+        </div>
+      </section>
+
       <section class="main-layout">
         <div class="left-column">
           <section class="panel actions-panel">
@@ -397,6 +411,13 @@
     <script src="./src/smokeTests.js"></script>
     <script src="./src/devMessageAudit.js"></script>
     <script src="./src/devtools.js"></script>
+    <script src="./src/worldTime.js"></script>
+    <script src="./src/worldMap.js"></script>
+    <script src="./src/worldPlayer.js"></script>
+    <script src="./src/worldNpcs.js"></script>
+    <script src="./src/worldInteractions.js"></script>
+    <script src="./src/worldRenderer.js"></script>
+    <script src="./src/worldGame.js"></script>
     <script src="./src/ui.js"></script>
     <script src="./src/main.js"></script>
   </body>

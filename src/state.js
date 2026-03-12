@@ -508,6 +508,12 @@
         0,
         time.MAX_ACTION_SLOTS
       );
+      state.time.minuteOfDay = clampInteger(
+        raw.time.minuteOfDay,
+        state.time.minuteOfDay,
+        time && typeof time.MIN_MINUTE_OF_DAY === "number" ? time.MIN_MINUTE_OF_DAY : 0,
+        time && typeof time.MAX_MINUTE_OF_DAY === "number" ? time.MAX_MINUTE_OF_DAY : ((24 * 60) - 1)
+      );
       fallbackSeason = seasonFromIndex(state.time.seasonIndex);
     }
 

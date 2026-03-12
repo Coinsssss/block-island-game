@@ -651,6 +651,47 @@ button:disabled {
   padding-right: 2px;
 }
 
+.overworld-panel {
+  padding: 10px;
+}
+
+.overworld-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 2.4fr) minmax(220px, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+#world-canvas {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #9fc8df;
+  image-rendering: pixelated;
+  display: block;
+}
+
+.overworld-hud {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7fafc;
+  padding: 8px;
+  display: grid;
+  grid-template-rows: repeat(5, auto);
+  gap: 4px;
+  align-content: start;
+}
+
+.overworld-hud p {
+  margin: 0;
+}
+
+#world-feedback-value {
+  min-height: 36px;
+  color: var(--text);
+}
+
 @media (max-width: 900px) {
   .top-bar {
     grid-template-columns: 1fr;
@@ -664,6 +705,10 @@ button:disabled {
   .left-column {
     grid-template-rows: auto auto;
     overflow: visible;
+  }
+
+  .overworld-shell {
+    grid-template-columns: 1fr;
   }
 
   .right-column {

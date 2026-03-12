@@ -574,22 +574,22 @@
     var i;
 
     if (!guardCoreRuntimeState("work")) {
-      return;
+      return false;
     }
 
     if (!state.jobs.activeJobId) {
       log("You need a job before you can work.");
       render();
-      return;
+      return false;
     }
 
     if (!jobs.canWorkToday(state)) {
       log("You've already worked today. Sleep before your next shift.");
       render();
-      return;
+      return false;
     }
 
-    if (!trySpendActionSlot()) return;
+    if (!trySpendActionSlot()) return false;
 
     workResult = jobs.performWorkShift(state);
 
@@ -597,7 +597,7 @@
       debugLog("performWorkShift returned null.", state.jobs);
       log("That shift couldn't start right now.");
       render();
-      return;
+      return false;
     }
 
     profile = getJobMessagingProfile(workResult.jobId);
@@ -677,6 +677,7 @@
     }
 
     render();
+    return true;
   }
 
   function onEat() {
@@ -689,16 +690,16 @@
       : baseMealCost;
 
     if (!guardCoreRuntimeState("eat")) {
-      return;
+      return false;
     }
 
     if (state.player.money < mealCost) {
       log("You need $" + mealCost + " to buy a meal.");
       render();
-      return;
+      return false;
     }
 
-    if (!trySpendActionSlot()) return;
+    if (!trySpendActionSlot()) return false;
 
     state.player.money -= mealCost;
     applyActionNeedsWithLifestyle("eat", "eatRestore", lifestyleId);
@@ -708,6 +709,7 @@
       log("You bought a meal for $" + mealCost + " and feel more energized.");
     }
     render();
+    return true;
   }
 
   function onSocialize() {
@@ -738,16 +740,16 @@
     var touristTip;
 
     if (!guardCoreRuntimeState("socialize")) {
-      return;
+      return false;
     }
 
     if (state.player.money < outingCost) {
       log("You need $" + outingCost + " to spend time out in town.");
       render();
-      return;
+      return false;
     }
 
-    if (!trySpendActionSlot()) return;
+    if (!trySpendActionSlot()) return false;
 
     state.player.money -= outingCost;
     applyActionNeedsWithLifestyle("socialize", "socializeGain", lifestyleId);
@@ -799,18 +801,20 @@
       events.consumeModifiersForAction(state, "socialize");
     }
     render();
+    return true;
   }
 
   function onRest() {
     if (!guardCoreRuntimeState("rest")) {
-      return;
+      return false;
     }
 
-    if (!trySpendActionSlot()) return;
+    if (!trySpendActionSlot()) return false;
 
     needs.applyActionNeeds(state, "rest");
     log("You took time to rest.");
     render();
+    return true;
   }
 
   function onSleep() {
@@ -824,7 +828,7 @@
     var saveOk;
 
     if (!guardCoreRuntimeState("sleep")) {
-      return;
+      return false;
     }
 
     needs.applyActionNeeds(state, "sleep");
@@ -891,7 +895,7 @@
 
     if (global.__DEV_DISABLE_SAVE) {
       render();
-      return;
+      return true;
     }
 
     saveOk = storage.saveState(state);
@@ -902,6 +906,7 @@
     }
 
     render();
+    return true;
   }
 
   function onNewGame() {
@@ -920,20 +925,24 @@
     }
 
     render();
+    return true;
   }
 
   function onMoveToSharedHouse() {
     if (!housing.canMoveToSharedHouse(state)) {
       log("You're not ready to move into the shared house yet.");
       render();
-      return;
+      return false;
     }
 
     if (housing.moveToSharedHouse(state)) {
       log("You moved into a shared house room.");
+      render();
+      return true;
     }
 
     render();
+    return false;
   }
 
   function getLifestyleChangeMessage(lifestyleId) {
@@ -955,7 +964,7 @@
 
     if (nextLifestyle === previousLifestyle) {
       render();
-      return;
+      return false;
     }
 
     log(getLifestyleChangeMessage(nextLifestyle));
@@ -964,12 +973,13 @@
       console.warn("[Block Island] Save failed after lifestyle change.");
     }
     render();
+    return true;
   }
 
   function onToggleDevMode(enabled) {
     if (!devtools || typeof devtools.setDevModeEnabled !== "function") {
       render();
-      return;
+      return false;
     }
 
     enabled = Boolean(enabled);
@@ -978,6 +988,7 @@
       devToolsApi.deactivateUi();
     }
     render();
+    return true;
   }
 
   function onDevToolAction(actionId) {
@@ -1019,10 +1030,12 @@
 
   function onOpenSwitchJob() {
     render();
+    return true;
   }
 
   function onFindJob() {
     render();
+    return true;
   }
 
   function onQuitJob() {
@@ -1187,4 +1200,18 @@
   });
 
   render();
+
+  if (ns.overworldGame && typeof ns.overworldGame.initOverworld === "function") {
+    ns.overworld = ns.overworldGame.initOverworld({
+      getState: function () {
+        return state;
+      },
+      onWork: onWork,
+      onEat: onEat,
+      onSocialize: onSocialize,
+      onRest: onRest,
+      onSleep: onSleep,
+      onSelectStartingJob: onSelectStartingJob
+    });
+  }
 })(window);
