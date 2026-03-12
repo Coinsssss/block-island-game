@@ -67,18 +67,9 @@
     return available[0] || "";
   }
 
-  function applyActionAndAdvanceTime(state, actionFn, minutesToAdvance) {
+  function applyActionAndAdvanceTime(state, actionFn) {
     var success = typeof actionFn === "function" ? Boolean(actionFn()) : false;
-
-    if (!success) {
-      return false;
-    }
-
-    if (worldTime && typeof worldTime.addMinutes === "function") {
-      worldTime.addMinutes(state, minutesToAdvance);
-    }
-
-    return true;
+    return success;
   }
 
   function interactWithNpc(context, npc) {
@@ -95,7 +86,11 @@
       };
     }
 
-    success = applyActionAndAdvanceTime(state, callbacks.onSocialize, 35);
+    if (typeof callbacks.onNpcTalk === "function") {
+      success = Boolean(callbacks.onNpcTalk(npc));
+    } else {
+      success = applyActionAndAdvanceTime(state, callbacks.onSocialize);
+    }
     if (!success) {
       return {
         handled: true,
@@ -111,7 +106,9 @@
     return {
       handled: true,
       success: true,
-      message: npc.name + ': "' + dialogue + '"'
+      message: "You chat with " + npc.name + ".",
+      dialogueTitle: npc.name,
+      dialogue: dialogue
     };
   }
 
@@ -171,10 +168,6 @@
           };
         }
 
-        if (worldTime && typeof worldTime.addMinutes === "function") {
-          worldTime.addMinutes(state, 20);
-        }
-
         starterJobName = jobs && jobs.getJobName ? jobs.getJobName(starterJobId) : "a new job";
         return {
           handled: true,
@@ -183,7 +176,7 @@
         };
       }
 
-      success = applyActionAndAdvanceTime(state, callbacks.onWork, 150);
+      success = applyActionAndAdvanceTime(state, callbacks.onWork);
       return {
         handled: true,
         success: success,
@@ -199,7 +192,7 @@
         return { handled: true, success: false, message: getBlockedTimeMessage("eat") };
       }
 
-      success = applyActionAndAdvanceTime(state, callbacks.onEat, 30);
+      success = applyActionAndAdvanceTime(state, callbacks.onEat);
       return {
         handled: true,
         success: success,
@@ -215,7 +208,7 @@
         return { handled: true, success: false, message: getBlockedTimeMessage("socialize") };
       }
 
-      success = applyActionAndAdvanceTime(state, callbacks.onSocialize, 40);
+      success = applyActionAndAdvanceTime(state, callbacks.onSocialize);
       return {
         handled: true,
         success: success,
@@ -224,7 +217,7 @@
     }
 
     if (interactable.type === "rest") {
-      success = applyActionAndAdvanceTime(state, callbacks.onRest, 50);
+      success = applyActionAndAdvanceTime(state, callbacks.onRest);
       return {
         handled: true,
         success: success,
@@ -232,14 +225,20 @@
       };
     }
 
-    if (interactable.type === "sleep") {
-      isAllowed = worldTime && worldTime.isActionAllowedNow
-        ? worldTime.isActionAllowedNow(state, "sleep")
-        : true;
-      if (!isAllowed && state.time && state.time.actionSlotsRemaining > 0) {
-        return { handled: true, success: false, message: getBlockedTimeMessage("sleep") };
-      }
+    if (interactable.type === "stand") {
+      success = typeof callbacks.onToggleStand === "function"
+        ? Boolean(callbacks.onToggleStand())
+        : false;
+      return {
+        handled: true,
+        success: success,
+        message: success
+          ? "You adjust the stand setup."
+          : "You couldn't change stand status right now."
+      };
+    }
 
+    if (interactable.type === "sleep") {
       success = typeof callbacks.onSleep === "function" ? Boolean(callbacks.onSleep()) : false;
       return {
         handled: true,

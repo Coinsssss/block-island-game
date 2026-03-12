@@ -99,7 +99,8 @@
 
     initialState = {
       season: normalizeSeason(defaultSeason, "spring"),
-      events: createInitialEventsState()
+      events: createInitialEventsState(),
+      stand: createInitialStandState()
     };
 
     return initialState;
@@ -112,6 +113,34 @@
       lastEventTitle: "None",
       modifiers: []
     };
+  }
+
+  function createInitialStandState() {
+    return {
+      isOpen: false,
+      cupsSoldToday: 0,
+      earningsToday: 0
+    };
+  }
+
+  function normalizeStandState(rawStand) {
+    var stand = createInitialStandState();
+
+    if (!rawStand || typeof rawStand !== "object") {
+      return stand;
+    }
+
+    if (typeof rawStand.isOpen === "boolean") {
+      stand.isOpen = rawStand.isOpen;
+    }
+    if (typeof rawStand.cupsSoldToday === "number") {
+      stand.cupsSoldToday = Math.max(0, Math.floor(rawStand.cupsSoldToday));
+    }
+    if (typeof rawStand.earningsToday === "number") {
+      stand.earningsToday = Math.max(0, Math.floor(rawStand.earningsToday));
+    }
+
+    return stand;
   }
 
   function normalizeEventModifier(rawModifier, fallbackDayNumber) {
@@ -172,11 +201,13 @@
     if (!rawWorld || typeof rawWorld !== "object") {
       world.season = nextFallbackSeason;
       world.events = normalizeEventsState(null, dayNumber);
+      world.stand = normalizeStandState(null);
       return world;
     }
 
     world.season = normalizeSeason(rawWorld.season, nextFallbackSeason);
     world.events = normalizeEventsState(rawWorld.events, dayNumber);
+    world.stand = normalizeStandState(rawWorld.stand);
     return world;
   }
 
@@ -733,6 +764,8 @@ function ensureMessageLogState(state) {
     normalizeWorldState: normalizeWorldState,
     createInitialEventsState: createInitialEventsState,
     normalizeEventsState: normalizeEventsState,
+    createInitialStandState: createInitialStandState,
+    normalizeStandState: normalizeStandState,
     createInitialStatsState: createInitialStatsState,
     normalizeStatsState: normalizeStatsState,
     createInitialFlagsState: createInitialFlagsState,

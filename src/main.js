@@ -14,6 +14,7 @@
   var lifestyle = ns.lifestyle;
   var devtools = ns.devtools;
   var smokeTests = ns.smokeTests;
+  var worldSimulation = ns.worldSimulation;
   var ui = ns.ui;
   var DEBUG_LOGS = false;
   var JOB_SWITCH_COOLDOWN_DAYS = 3;
@@ -59,6 +60,9 @@
 
   var loadedState = storage.loadState();
   var state = stateApi.createStateFromSave(loadedState);
+  if (worldSimulation && typeof worldSimulation.ensureStandState === "function") {
+    worldSimulation.ensureStandState(state);
+  }
   syncWorldSeasonFromTime();
   syncWorldDayFromTime();
 
@@ -181,16 +185,6 @@
       state.world = {};
     }
     state.world.day = getCurrentDayNumberFromTimeState();
-  }
-
-  function trySpendActionSlot() {
-    if (!time.consumeActionSlot(state.time)) {
-      log("You're out of actions today. Sleep to begin tomorrow.");
-      render();
-      return false;
-    }
-
-    return true;
   }
 
   function applyTownReputationChange(amount) {
@@ -570,6 +564,8 @@
     var townRepGain = 2;
     var barRepGain = 0;
     var lifestyleId = getLifestyleId();
+    var needsEffectMultiplier = 1;
+    var needsPenaltyAdjustment = 0;
     var profile;
     var i;
 
@@ -588,8 +584,6 @@
       render();
       return false;
     }
-
-    if (!trySpendActionSlot()) return false;
 
     workResult = jobs.performWorkShift(state);
 
@@ -612,7 +606,27 @@
     if (events && typeof events.getCombinedWorkPayMultiplier === "function") {
       workPayMultiplier = events.getCombinedWorkPayMultiplier(state);
     }
+
+    // Real-time sim pressure: low needs directly reduce work effectiveness.
+    if (state.player.needs.hunger < 25) {
+      needsEffectMultiplier -= 0.1;
+    }
+    if (state.player.needs.energy < 25) {
+      needsEffectMultiplier -= 0.12;
+    }
+    if (state.player.needs.social < 25) {
+      needsEffectMultiplier -= 0.06;
+    }
+    needsEffectMultiplier = Math.max(0.65, needsEffectMultiplier);
+
     totalPay = workResult.pay;
+    if (needsEffectMultiplier !== 1) {
+      needsPenaltyAdjustment = Math.round(workResult.pay * needsEffectMultiplier) - workResult.pay;
+      if (needsPenaltyAdjustment !== 0) {
+        state.player.money += needsPenaltyAdjustment;
+        totalPay += needsPenaltyAdjustment;
+      }
+    }
     if (workPayMultiplier !== 1) {
       payAdjustment = Math.round(workResult.pay * workPayMultiplier) - workResult.pay;
       if (payAdjustment !== 0) {
@@ -645,6 +659,9 @@
       log("Today's conditions gave your shift a boost. (+$" + payAdjustment + ")");
     } else if (payAdjustment < 0) {
       log("Today's conditions cut into your shift pay. (-$" + Math.abs(payAdjustment) + ")");
+    }
+    if (needsPenaltyAdjustment < 0) {
+      log("Low energy, hunger, or mood made this shift harder. (-$" + Math.abs(needsPenaltyAdjustment) + ")");
     }
     log("You worked your shift at " + workResult.jobName + " and earned $" + totalPay + ".");
     tipAmount = tryGrantWorkTips(workResult.jobId, lifestyleId);
@@ -699,8 +716,6 @@
       return false;
     }
 
-    if (!trySpendActionSlot()) return false;
-
     state.player.money -= mealCost;
     applyActionNeedsWithLifestyle("eat", "eatRestore", lifestyleId);
     if (state.player.needs.hunger >= 90) {
@@ -738,6 +753,7 @@
     var socialGain;
     var socialResult;
     var touristTip;
+    var moodValue;
 
     if (!guardCoreRuntimeState("socialize")) {
       return false;
@@ -749,10 +765,19 @@
       return false;
     }
 
-    if (!trySpendActionSlot()) return false;
-
     state.player.money -= outingCost;
     applyActionNeedsWithLifestyle("socialize", "socializeGain", lifestyleId);
+    moodValue = state.player.needs.social;
+    if (moodValue < 30) {
+      socializeGainMultiplier *= 0.75;
+      townRepChance -= 0.1;
+      barRepChance -= 0.06;
+    } else if (moodValue > 70) {
+      socializeGainMultiplier *= 1.1;
+      townRepChance += 0.05;
+      barRepChance += 0.04;
+    }
+
     if (lifestyleId === "social") {
       townRepChance += 0.08;
       barRepChance += 0.12;
@@ -761,7 +786,7 @@
       barRepChance -= 0.03;
     }
     if (events && typeof events.getCombinedSocializeGainMultiplier === "function") {
-      socializeGainMultiplier = events.getCombinedSocializeGainMultiplier(state);
+      socializeGainMultiplier *= events.getCombinedSocializeGainMultiplier(state);
     }
     if (socializeGainMultiplier !== 1) {
       townRepGain = Math.max(0, Math.round(townRepGain * socializeGainMultiplier));
@@ -804,12 +829,46 @@
     return true;
   }
 
+  function onNpcTalk(npc) {
+    var groupId = npc && typeof npc.socialGroup === "string" ? npc.socialGroup : "locals";
+    var speakerName = npc && typeof npc.name === "string" ? npc.name : "a local";
+    var relationshipGain = state.player.needs.social >= 65 ? 2 : 1;
+    var relationshipResult;
+    var townRepResult;
+    var groupLabel;
+
+    if (!guardCoreRuntimeState("npc_talk")) {
+      return false;
+    }
+
+    relationshipResult = stateApi.addSocialRelationship(state, groupId, relationshipGain);
+    state.player.needs.social = clampNeedValue(state.player.needs.social + 2);
+
+    if (groupId === "staff") {
+      groupLabel = "Staff";
+    } else if (groupId === "summerPeople") {
+      groupLabel = "Summer People";
+    } else {
+      groupLabel = "Local";
+    }
+
+    log("You talk with " + speakerName + ". (+" + relationshipResult.delta + " " + groupLabel + " relationship)");
+    if (random() < 0.35) {
+      townRepResult = applyTownReputationChange(1);
+      logTierChangeIfNeeded(townRepResult);
+      if (townRepResult && townRepResult.delta > 0) {
+        log("The conversation helps your local standing. (+" + townRepResult.delta + " Town Rep)");
+      }
+    }
+    logSocialUnlockAnnouncements();
+    render();
+    return true;
+  }
+
   function onRest() {
     if (!guardCoreRuntimeState("rest")) {
       return false;
     }
-
-    if (!trySpendActionSlot()) return false;
 
     needs.applyActionNeeds(state, "rest");
     log("You took time to rest.");
@@ -843,6 +902,9 @@
     }
 
     time.advanceDay(state.time);
+    if (worldSimulation && typeof worldSimulation.resetDailyWorldState === "function") {
+      worldSimulation.resetDailyWorldState(state);
+    }
     syncWorldSeasonFromTime();
     syncWorldDayFromTime();
     applyLifestyleSleepPassiveEffects();
@@ -943,6 +1005,26 @@
 
     render();
     return false;
+  }
+
+  function onToggleStand() {
+    var isOpen;
+    var standLabel;
+
+    if (!guardCoreRuntimeState("toggle_stand")) {
+      return false;
+    }
+    if (!worldSimulation || typeof worldSimulation.toggleStandOpen !== "function") {
+      return false;
+    }
+
+    isOpen = worldSimulation.toggleStandOpen(state);
+    standLabel = worldSimulation && typeof worldSimulation.getStandStatusLabel === "function"
+      ? worldSimulation.getStandStatusLabel(state)
+      : (isOpen ? "Open" : "Closed");
+    log("Lemonade stand " + (isOpen ? "opened" : "closed") + ". (" + standLabel + ")");
+    render();
+    return true;
   }
 
   function getLifestyleChangeMessage(lifestyleId) {
@@ -1206,11 +1288,19 @@
       getState: function () {
         return state;
       },
+      requestRender: render,
+      isTimePaused: function () {
+        return ui && typeof ui.isWorldTimePaused === "function"
+          ? ui.isWorldTimePaused()
+          : false;
+      },
       onWork: onWork,
       onEat: onEat,
       onSocialize: onSocialize,
+      onNpcTalk: onNpcTalk,
       onRest: onRest,
       onSleep: onSleep,
+      onToggleStand: onToggleStand,
       onSelectStartingJob: onSelectStartingJob
     });
   }

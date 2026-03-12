@@ -58,6 +58,16 @@
         height: 240,
         color: "#d0b6c2",
         roofColor: "#8d5d77"
+      },
+      {
+        id: "lemonade_stand",
+        name: "Lemonade Stand",
+        x: 980,
+        y: 930,
+        width: 180,
+        height: 120,
+        color: "#f2dd8b",
+        roofColor: "#d0a53c"
       }
     ],
     decorativeTrees: [
@@ -72,6 +82,7 @@
       { x: 1080, y: 250, width: 420, height: 260 },
       { x: 700, y: 820, width: 360, height: 240 },
       { x: 1420, y: 620, width: 360, height: 240 },
+      { x: 980, y: 930, width: 180, height: 120 },
       { x: 1380, y: 0, width: 820, height: 640 },
       { x: 1780, y: 620, width: 420, height: 420 },
       { x: 20, y: 0, width: 60, height: 1400 },
@@ -124,6 +135,15 @@
         y: 900,
         radius: 44,
         prompt: "Press E to hang out in Dock Square."
+      },
+      {
+        id: "stand_counter",
+        type: "stand",
+        label: "Lemonade Stand",
+        x: 1060,
+        y: 1080,
+        radius: 44,
+        prompt: "Press E to open or close your lemonade stand."
       }
     ],
     locations: [
@@ -142,6 +162,14 @@
         y: 760,
         width: 560,
         height: 460
+      },
+      {
+        id: "stand_lane",
+        name: "Stand Lane",
+        x: 920,
+        y: 860,
+        width: 340,
+        height: 320
       },
       {
         id: "work_yard",

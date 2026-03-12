@@ -5,6 +5,7 @@
   var worldNpcs = ns.worldNpcs;
   var worldTime = ns.worldTime;
   var worldInteractions = ns.worldInteractions;
+  var worldSimulation = ns.worldSimulation;
   var worldRenderer = ns.worldRenderer;
 
   function isFormLikeElement(target) {
@@ -39,6 +40,13 @@
     var locationValue = global.document.getElementById("world-location-value");
     var hintValue = global.document.getElementById("world-hint-value");
     var feedbackValue = global.document.getElementById("world-feedback-value");
+    var standValue = global.document.getElementById("world-stand-value");
+    var hungerValue = global.document.getElementById("world-hunger-value");
+    var energyValue = global.document.getElementById("world-energy-value");
+    var moodValue = global.document.getElementById("world-mood-value");
+    var dialogueOverlay = global.document.getElementById("world-dialogue-overlay");
+    var dialogueName = global.document.getElementById("world-dialogue-name");
+    var dialogueText = global.document.getElementById("world-dialogue-text");
     var context2d;
     var map;
     var player;
@@ -48,6 +56,8 @@
     var interactionCooldownMs = 0;
     var feedbackTimeoutMs = 0;
     var lastKnownDayKey = "";
+    var uiRefreshAccumulatorMs = 0;
+    var dialogueOpen = false;
     var destroyed = false;
 
     if (!canvas || typeof canvas.getContext !== "function") {
@@ -86,6 +96,15 @@
 
     function onKeyDown(event) {
       if (!event || isFormLikeElement(event.target)) return;
+
+      if (
+        dialogueOpen &&
+        (event.code === "KeyE" || event.code === "Escape")
+      ) {
+        closeDialogue();
+        event.preventDefault();
+        return;
+      }
 
       if (event.code === "ArrowUp" || event.code === "KeyW") {
         input.up = true;
@@ -136,6 +155,10 @@
           onSocialize: options && typeof options.onSocialize === "function" ? options.onSocialize : null,
           onRest: options && typeof options.onRest === "function" ? options.onRest : null,
           onSleep: options && typeof options.onSleep === "function" ? options.onSleep : null,
+          onNpcTalk: options && typeof options.onNpcTalk === "function" ? options.onNpcTalk : null,
+          onToggleStand: options && typeof options.onToggleStand === "function"
+            ? options.onToggleStand
+            : null,
           onSelectStartingJob: options && typeof options.onSelectStartingJob === "function"
             ? options.onSelectStartingJob
             : null
@@ -146,6 +169,9 @@
         setFeedback({ feedback: feedbackValue }, "Move closer to someone or a location to interact.");
       } else {
         setFeedback({ feedback: feedbackValue }, result.message || "");
+        if (result && result.dialogue) {
+          openDialogue(result.dialogueTitle || "Conversation", result.dialogue);
+        }
       }
 
       feedbackTimeoutMs = 4200;
@@ -157,11 +183,69 @@
       }
     }
 
+    function openDialogue(title, text) {
+      if (!dialogueOverlay) return;
+
+      dialogueOpen = true;
+      if (dialogueName) {
+        dialogueName.textContent = title || "Conversation";
+      }
+      if (dialogueText) {
+        dialogueText.textContent = text || "...";
+      }
+      dialogueOverlay.hidden = false;
+    }
+
+    function closeDialogue() {
+      if (!dialogueOverlay) return;
+
+      dialogueOpen = false;
+      dialogueOverlay.hidden = true;
+      interactionCooldownMs = 250;
+      input.interactPressed = false;
+    }
+
+    function isTimePaused() {
+      var pausedElement;
+      var callbackPaused = options && typeof options.isTimePaused === "function"
+        ? Boolean(options.isTimePaused())
+        : false;
+
+      if (dialogueOpen || callbackPaused) {
+        return true;
+      }
+
+      pausedElement = global.document.querySelector("[data-pauses-time=\"true\"]:not([hidden])");
+      return Boolean(pausedElement);
+    }
+
+    function runAutomaticDayEnd(state) {
+      var slept = options && typeof options.onSleep === "function"
+        ? Boolean(options.onSleep())
+        : false;
+
+      if (!slept) {
+        setFeedback({ feedback: feedbackValue }, "You pass out from exhaustion as day ends.");
+      } else {
+        setFeedback({ feedback: feedbackValue }, "The day ends. You wake up the next morning.");
+      }
+
+      if (worldSimulation && typeof worldSimulation.resetDailyWorldState === "function") {
+        worldSimulation.resetDailyWorldState(state);
+      }
+      resetPlayerToHome();
+      if (worldTime && typeof worldTime.resetClockAccumulator === "function") {
+        worldTime.resetClockAccumulator();
+      }
+      feedbackTimeoutMs = 4200;
+    }
+
     function updateHud(state) {
       var minuteOfDay;
       var segmentId;
       var hint;
       var locationName;
+      var standLabel;
 
       if (!state) return;
 
@@ -194,6 +278,19 @@
       if (hintValue) {
         hintValue.textContent = hint;
       }
+      if (worldSimulation && typeof worldSimulation.getStandStatusLabel === "function") {
+        standLabel = worldSimulation.getStandStatusLabel(state);
+      } else {
+        standLabel = "Closed";
+      }
+      if (standValue) {
+        standValue.textContent = standLabel;
+      }
+      if (state.player && state.player.needs) {
+        if (hungerValue) hungerValue.textContent = String(Math.round(state.player.needs.hunger));
+        if (energyValue) energyValue.textContent = String(Math.round(state.player.needs.energy));
+        if (moodValue) moodValue.textContent = String(Math.round(state.player.needs.social));
+      }
     }
 
     function renderFrame(state) {
@@ -224,6 +321,10 @@
       var movementResult;
       var minuteOfDay;
       var dayKey;
+      var clockTick;
+      var paused;
+      var movementSpeedMult = 1;
+      var previousMinute;
 
       if (destroyed) {
         return;
@@ -246,6 +347,9 @@
         return;
       }
 
+      if (worldSimulation && typeof worldSimulation.ensureStandState === "function") {
+        worldSimulation.ensureStandState(state);
+      }
       if (worldTime && typeof worldTime.ensureTimeState === "function") {
         worldTime.ensureTimeState(state);
       }
@@ -256,9 +360,25 @@
       }
       lastKnownDayKey = dayKey;
 
-      movementResult = worldPlayer.updatePlayer(player, input, map, deltaMs / 1000);
-      if (worldTime && typeof worldTime.tickClock === "function") {
-        worldTime.tickClock(state, deltaMs, Boolean(movementResult && movementResult.moved));
+      paused = isTimePaused();
+      if (worldSimulation && typeof worldSimulation.getMovementSpeedMultiplier === "function") {
+        movementSpeedMult = worldSimulation.getMovementSpeedMultiplier(state);
+      }
+      movementResult = paused
+        ? { moved: false }
+        : worldPlayer.updatePlayer(player, input, map, deltaMs / 1000, movementSpeedMult);
+
+      previousMinute = worldTime && typeof worldTime.getMinuteOfDay === "function"
+        ? worldTime.getMinuteOfDay(state)
+        : 8 * 60;
+      clockTick = worldTime && typeof worldTime.tickClock === "function"
+        ? worldTime.tickClock(state, deltaMs, paused)
+        : { advancedMinutes: 0, reachedEndOfDay: false };
+      if (clockTick.advancedMinutes > 0 && worldSimulation && typeof worldSimulation.stepRealtimeSimulation === "function") {
+        worldSimulation.stepRealtimeSimulation(state, clockTick.advancedMinutes, previousMinute);
+      }
+      if (clockTick.reachedEndOfDay) {
+        runAutomaticDayEnd(state);
       }
 
       minuteOfDay = worldTime && typeof worldTime.getMinuteOfDay === "function"
@@ -280,6 +400,16 @@
 
       if (input.interactPressed && interactionCooldownMs <= 0) {
         runInteraction(state);
+      }
+
+      if (clockTick.advancedMinutes > 0 || feedbackTimeoutMs > 0) {
+        uiRefreshAccumulatorMs += deltaMs;
+      }
+      if (uiRefreshAccumulatorMs >= 280) {
+        if (options && typeof options.requestRender === "function") {
+          options.requestRender();
+        }
+        uiRefreshAccumulatorMs = 0;
       }
 
       renderFrame(state);

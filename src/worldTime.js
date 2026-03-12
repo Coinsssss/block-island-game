@@ -2,16 +2,24 @@
   var ns = global.BlockIsland = global.BlockIsland || {};
   var time = ns.time;
 
-  var DEFAULT_START_MINUTE = 8 * 60;
-  var MIN_MINUTE_OF_DAY = 0;
-  var MAX_MINUTE_OF_DAY = (24 * 60) - 1;
-  var MORNING_START = 6 * 60;
+  var DAY_START_MINUTE = time && typeof time.DAY_START_MINUTE === "number"
+    ? time.DAY_START_MINUTE
+    : (8 * 60);
+  var DAY_END_MINUTE = time && typeof time.DAY_END_MINUTE === "number"
+    ? time.DAY_END_MINUTE
+    : (20 * 60);
+  var DAY_ACTIVE_MINUTES = Math.max(1, DAY_END_MINUTE - DAY_START_MINUTE);
+  var DAY_DURATION_REAL_MS = time && typeof time.DAY_DURATION_REAL_MS === "number"
+    ? time.DAY_DURATION_REAL_MS
+    : (10 * 60 * 1000);
+  var DEFAULT_START_MINUTE = DAY_START_MINUTE;
+  var MIN_MINUTE_OF_DAY = DAY_START_MINUTE;
+  var MAX_MINUTE_OF_DAY = DAY_END_MINUTE;
+  var MORNING_START = DAY_START_MINUTE;
   var AFTERNOON_START = 12 * 60;
   var EVENING_START = 17 * 60;
-  var NIGHT_START = 21 * 60;
-  var MOVING_MINUTE_MS = 900;
-  var IDLE_MINUTE_MS = 3200;
-  var clockAccumulatorMs = 0;
+  var NIGHT_START = DAY_END_MINUTE;
+  var minuteAccumulator = 0;
 
   var ACTION_WINDOWS = {
     work: { morning: true, afternoon: true },
@@ -128,32 +136,49 @@
     return Boolean(windows[segment]);
   }
 
-  function tickClock(state, deltaMs, isMoving) {
-    var minuteStepMs = isMoving ? MOVING_MINUTE_MS : IDLE_MINUTE_MS;
+  function tickClock(state, deltaMs, paused) {
+    // Real-time day model: one full day window runs in fixed real-time duration.
     var safeDeltaMs = typeof deltaMs === "number" && !Number.isNaN(deltaMs)
       ? Math.max(0, deltaMs)
       : 0;
     var advanced = 0;
+    var reachedEndOfDay = false;
+    var currentMinute;
+    var nextMinute;
 
     ensureTimeState(state);
-    clockAccumulatorMs += safeDeltaMs;
-
-    while (clockAccumulatorMs >= minuteStepMs) {
-      if (getMinuteOfDay(state) >= MAX_MINUTE_OF_DAY) {
-        clockAccumulatorMs = 0;
-        break;
-      }
-
-      addMinutes(state, 1);
-      advanced += 1;
-      clockAccumulatorMs -= minuteStepMs;
+    if (paused) {
+      return {
+        advancedMinutes: 0,
+        reachedEndOfDay: false
+      };
     }
 
-    return advanced;
+    minuteAccumulator += (safeDeltaMs / DAY_DURATION_REAL_MS) * DAY_ACTIVE_MINUTES;
+    advanced = Math.floor(minuteAccumulator);
+    if (advanced <= 0) {
+      return {
+        advancedMinutes: 0,
+        reachedEndOfDay: false
+      };
+    }
+
+    minuteAccumulator -= advanced;
+    currentMinute = getMinuteOfDay(state);
+    nextMinute = Math.min(DAY_END_MINUTE, currentMinute + advanced);
+    setMinuteOfDay(state, nextMinute);
+    if (nextMinute >= DAY_END_MINUTE) {
+      reachedEndOfDay = true;
+    }
+
+    return {
+      advancedMinutes: Math.max(0, nextMinute - currentMinute),
+      reachedEndOfDay: reachedEndOfDay
+    };
   }
 
   function resetClockAccumulator() {
-    clockAccumulatorMs = 0;
+    minuteAccumulator = 0;
   }
 
   function resetToMorning(state) {
@@ -167,6 +192,10 @@
   }
 
   ns.worldTime = {
+    DAY_START_MINUTE: DAY_START_MINUTE,
+    DAY_END_MINUTE: DAY_END_MINUTE,
+    DAY_ACTIVE_MINUTES: DAY_ACTIVE_MINUTES,
+    DAY_DURATION_REAL_MS: DAY_DURATION_REAL_MS,
     DEFAULT_START_MINUTE: DEFAULT_START_MINUTE,
     MORNING_START: MORNING_START,
     AFTERNOON_START: AFTERNOON_START,

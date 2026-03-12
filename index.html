@@ -10,7 +10,7 @@
     <main class="app">
       <header class="panel">
         <h1>Block Island - Phase 1 Prototype</h1>
-        <p class="subtitle">Menu-based life and economy simulation prototype</p>
+        <p class="subtitle">Real-time overworld life and economy simulation prototype</p>
       </header>
 
       <section class="panel top-bar">
@@ -20,8 +20,8 @@
           <p class="top-subtle" id="top-season-value">Spring</p>
         </div>
         <div class="top-item">
-          <p class="top-label">Actions Left</p>
-          <p class="top-value"><span id="slots-value">3/3</span></p>
+          <p class="top-label">Day Progress</p>
+          <p class="top-value"><span id="slots-value">08:00 - 20:00</span></p>
         </div>
         <div class="top-item">
           <p class="top-label">Weekly Rent</p>
@@ -45,8 +45,19 @@
             <p><strong>Clock:</strong> <span id="world-clock-value">08:00</span></p>
             <p><strong>Time:</strong> <span id="world-segment-value">Morning</span></p>
             <p><strong>Area:</strong> <span id="world-location-value">Employee Housing</span></p>
+            <p><strong>Stand:</strong> <span id="world-stand-value">Closed</span></p>
+            <p><strong>Hunger:</strong> <span id="world-hunger-value">70</span></p>
+            <p><strong>Energy:</strong> <span id="world-energy-value">80</span></p>
+            <p><strong>Mood:</strong> <span id="world-mood-value">50</span></p>
             <p class="helper-text" id="world-hint-value">Move with WASD/Arrows. Press E to interact.</p>
             <p class="helper-text" id="world-feedback-value"></p>
+          </div>
+          <div id="world-dialogue-overlay" class="world-overlay" hidden data-pauses-time="true">
+            <div class="world-overlay-card">
+              <p><strong id="world-dialogue-name">Conversation</strong></p>
+              <p id="world-dialogue-text">...</p>
+              <p class="helper-text">Press E (or Escape) to close.</p>
+            </div>
           </div>
         </div>
       </section>
@@ -55,22 +66,22 @@
         <div class="left-column">
           <section class="panel actions-panel">
             <h2 class="section-title">
-              Actions
+              Legacy Quick Actions (Debug)
               <span class="tooltip-wrap tile-tooltip" id="actions-tooltip-wrap">
                 <button type="button" class="info-bubble" aria-label="About Actions">?</button>
                 <span class="tooltip-text" role="tooltip" id="actions-tooltip-text">
-                  <span>You get 3 actions per day.</span>
-                  <span>Sleep advances time and resets actions.</span>
-                  <span>Work: Earn money and build reputation.</span>
-                  <span id="actions-tooltip-eat-line">Eat: Costs $18 to restore hunger and energy.</span>
-                  <span id="actions-tooltip-socialize-line">Socialize: Costs $8 to build reputation and social network.</span>
-                  <span>Rest: Recover energy.</span>
+                  <span>Primary gameplay is in the overworld.</span>
+                  <span>Use movement + E interactions for normal play.</span>
+                  <span>These buttons are legacy/debug shortcuts.</span>
+                  <span id="actions-tooltip-eat-line">Eat: quick shortcut for testing.</span>
+                  <span id="actions-tooltip-socialize-line">Socialize: quick shortcut for testing.</span>
+                  <span>Sleep can be triggered from your bed in-world.</span>
                 </span>
               </span>
             </h2>
             <div class="actions-today-context" id="actions-today-context">
               <p id="actions-today-date">Spring • Monday</p>
-              <p id="actions-today-slots">Actions left: 3/3</p>
+              <p id="actions-today-slots">Real-time day loop active.</p>
               <p id="actions-today-hint">It&apos;s a normal day on the island.</p>
             </div>
             <div class="actions">
@@ -416,6 +427,7 @@
     <script src="./src/worldPlayer.js"></script>
     <script src="./src/worldNpcs.js"></script>
     <script src="./src/worldInteractions.js"></script>
+    <script src="./src/worldSimulation.js"></script>
     <script src="./src/worldRenderer.js"></script>
     <script src="./src/worldGame.js"></script>
     <script src="./src/ui.js"></script>

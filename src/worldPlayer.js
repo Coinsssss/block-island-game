@@ -62,7 +62,7 @@
     return false;
   }
 
-  function updatePlayer(player, input, map, deltaSeconds) {
+  function updatePlayer(player, input, map, deltaSeconds, speedMultiplier) {
     var moveX = 0;
     var moveY = 0;
     var length;
@@ -88,6 +88,9 @@
     }
 
     speed = player.speed * (typeof deltaSeconds === "number" ? Math.max(0, deltaSeconds) : 0);
+    if (typeof speedMultiplier === "number" && !Number.isNaN(speedMultiplier)) {
+      speed *= Math.max(0.2, Math.min(1, speedMultiplier));
+    }
     nextX = player.x + (moveX * speed);
     nextY = player.y + (moveY * speed);
 

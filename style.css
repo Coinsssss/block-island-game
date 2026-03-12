@@ -660,6 +660,7 @@ button:disabled {
   grid-template-columns: minmax(0, 2.4fr) minmax(220px, 1fr);
   gap: 10px;
   align-items: stretch;
+  position: relative;
 }
 
 #world-canvas {
@@ -678,7 +679,7 @@ button:disabled {
   background: #f7fafc;
   padding: 8px;
   display: grid;
-  grid-template-rows: repeat(5, auto);
+  grid-template-rows: repeat(9, auto);
   gap: 4px;
   align-content: start;
 }
@@ -687,9 +688,37 @@ button:disabled {
   margin: 0;
 }
 
+#world-clock-value {
+  font-size: 1.28rem;
+  font-weight: 700;
+}
+
 #world-feedback-value {
   min-height: 36px;
   color: var(--text);
+}
+
+.world-overlay[hidden] {
+  display: none;
+}
+
+.world-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 18, 26, 0.66);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  z-index: 30;
+}
+
+.world-overlay-card {
+  width: min(540px, 90%);
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
 }
 
 @media (max-width: 900px) {

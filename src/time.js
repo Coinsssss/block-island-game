@@ -17,9 +17,13 @@
   var DAYS_PER_SEASON = 21;
   var MAX_ACTION_SLOTS = 3;
   var MINUTE_PER_DAY = 24 * 60;
-  var DEFAULT_DAY_START_MINUTE = 8 * 60;
-  var MIN_MINUTE_OF_DAY = 0;
-  var MAX_MINUTE_OF_DAY = MINUTE_PER_DAY - 1;
+  var DAY_START_MINUTE = 8 * 60;
+  var DAY_END_MINUTE = 20 * 60;
+  var DAY_ACTIVE_MINUTES = DAY_END_MINUTE - DAY_START_MINUTE;
+  var DAY_DURATION_REAL_MS = 10 * 60 * 1000;
+  var DEFAULT_DAY_START_MINUTE = DAY_START_MINUTE;
+  var MIN_MINUTE_OF_DAY = DAY_START_MINUTE;
+  var MAX_MINUTE_OF_DAY = DAY_END_MINUTE;
 
   function createInitialTimeState() {
     return {
@@ -68,8 +72,9 @@
   }
 
   function consumeActionSlot(timeState) {
-    if (!timeState || timeState.actionSlotsRemaining <= 0) return false;
-    timeState.actionSlotsRemaining -= 1;
+    // Legacy compatibility shim: action points are no longer the core loop.
+    if (!timeState) return false;
+    timeState.actionSlotsRemaining = MAX_ACTION_SLOTS;
     return true;
   }
 
@@ -132,7 +137,7 @@
   function getTimeSegmentId(timeState) {
     var minute = getMinuteOfDay(timeState);
 
-    if (minute >= 21 * 60 || minute < 6 * 60) {
+    if (minute >= 20 * 60 || minute < 8 * 60) {
       return "night";
     }
     if (minute >= 17 * 60) {
@@ -153,6 +158,11 @@
     return String(hour).padStart(2, "0") + ":" + String(minutePart).padStart(2, "0");
   }
 
+  function getDayProgress(minuteOfDay) {
+    var minute = clampMinuteOfDay(minuteOfDay);
+    return Math.max(0, Math.min(1, (minute - DAY_START_MINUTE) / DAY_ACTIVE_MINUTES));
+  }
+
   ns.time = {
     WEEKDAYS: WEEKDAYS,
     SEASONS: SEASONS,
@@ -161,6 +171,10 @@
     DAYS_PER_SEASON: DAYS_PER_SEASON,
     MAX_ACTION_SLOTS: MAX_ACTION_SLOTS,
     MINUTE_PER_DAY: MINUTE_PER_DAY,
+    DAY_START_MINUTE: DAY_START_MINUTE,
+    DAY_END_MINUTE: DAY_END_MINUTE,
+    DAY_ACTIVE_MINUTES: DAY_ACTIVE_MINUTES,
+    DAY_DURATION_REAL_MS: DAY_DURATION_REAL_MS,
     DEFAULT_DAY_START_MINUTE: DEFAULT_DAY_START_MINUTE,
     MIN_MINUTE_OF_DAY: MIN_MINUTE_OF_DAY,
     MAX_MINUTE_OF_DAY: MAX_MINUTE_OF_DAY,
@@ -177,6 +191,7 @@
     getSeasonIdFromState: getSeasonIdFromState,
     getTimeSegmentId: getTimeSegmentId,
     formatClock: formatClock,
+    getDayProgress: getDayProgress,
     isBusySeason: isBusySeason
   };
 })(window);

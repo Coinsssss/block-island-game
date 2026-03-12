@@ -639,6 +639,30 @@
     }
   }
 
+  function isElementVisible(node) {
+    if (!node || typeof node !== "object") return false;
+    if (node.hidden) return false;
+    if (node.getAttribute && node.getAttribute("aria-hidden") === "true") return false;
+    if (typeof node.offsetWidth === "number" && typeof node.offsetHeight === "number") {
+      return node.offsetWidth > 0 || node.offsetHeight > 0;
+    }
+    return true;
+  }
+
+  function isWorldTimePaused() {
+    var pauseNodes = Array.prototype.slice.call(
+      document.querySelectorAll("[data-pauses-time=\"true\"]")
+    );
+    var devModal = document.querySelector(".dev-modal:not([hidden])");
+    var explicitMenu = document.querySelector("[data-menu-open=\"true\"]");
+
+    if (isElementVisible(devModal) || isElementVisible(explicitMenu)) {
+      return true;
+    }
+
+    return pauseNodes.some(isElementVisible);
+  }
+
   function getDateLabel(timeState) {
     var seasonIndex = timeState && typeof timeState.seasonIndex === "number"
       ? timeState.seasonIndex
@@ -831,6 +855,7 @@
   }
   function initUI(handlers) {
     elements.leftColumn = document.querySelector(".left-column");
+    elements.actionsPanel = document.querySelector(".actions-panel");
     elements.topDate = ensureElement("top-date-value");
     elements.topSeason = ensureElement("top-season-value");
     elements.slots = ensureElement("slots-value");
@@ -1028,29 +1053,20 @@
       setLastActionResult("Last: Worked a shift. (see log)", [
         "You need a job before you can work.",
         "You've already worked today.",
-        "That shift couldn't start right now.",
-        "You're out of actions today. Sleep to begin tomorrow."
+        "That shift couldn't start right now."
       ]);
     });
     elements.eatButton.addEventListener("click", function () {
       handlers.onEat();
-      setLastActionResult("Last: Ate a meal. (see log)", [
-        "You need $",
-        "You're out of actions today. Sleep to begin tomorrow."
-      ]);
+      setLastActionResult("Last: Ate a meal. (see log)", ["You need $"]);
     });
     elements.socializeButton.addEventListener("click", function () {
       handlers.onSocialize();
-      setLastActionResult("Last: Socialized. (see log)", [
-        "You need $",
-        "You're out of actions today. Sleep to begin tomorrow."
-      ]);
+      setLastActionResult("Last: Socialized. (see log)", ["You need $"]);
     });
     elements.restButton.addEventListener("click", function () {
       handlers.onRest();
-      setLastActionResult("Last: Rested. (see log)", [
-        "You're out of actions today. Sleep to begin tomorrow."
-      ]);
+      setLastActionResult("Last: Rested. (see log)");
     });
     elements.sleepButton.addEventListener("click", function () {
       handlers.onSleep();
@@ -1205,8 +1221,21 @@
     }
 
     var requirements = housing.SHARED_HOUSE_REQUIREMENTS || fallbackRequirements;
-    var slotsRemaining = state.time.actionSlotsRemaining;
-    var noSlots = slotsRemaining <= 0;
+    var minuteOfDay = time && typeof time.getMinuteOfDay === "function"
+      ? time.getMinuteOfDay(state.time)
+      : ((typeof state.time.minuteOfDay === "number" ? state.time.minuteOfDay : (8 * 60)));
+    var dayStartMinute = time && typeof time.DAY_START_MINUTE === "number" ? time.DAY_START_MINUTE : (8 * 60);
+    var dayEndMinute = time && typeof time.DAY_END_MINUTE === "number" ? time.DAY_END_MINUTE : (20 * 60);
+    var dayProgress = time && typeof time.getDayProgress === "function"
+      ? time.getDayProgress(minuteOfDay)
+      : Math.max(0, Math.min(1, (minuteOfDay - dayStartMinute) / Math.max(1, dayEndMinute - dayStartMinute)));
+    var dayProgressPercent = Math.round(dayProgress * 100);
+    var clockLabel = time && typeof time.formatClock === "function"
+      ? time.formatClock(minuteOfDay)
+      : "08:00";
+    var endClockLabel = time && typeof time.formatClock === "function"
+      ? time.formatClock(dayEndMinute)
+      : "20:00";
     var townReputation = reputation && typeof reputation.getTownReputation === "function"
       ? reputation.getTownReputation(state)
       : state.player.reputation;
@@ -1265,10 +1294,13 @@
 
     elements.topDate.textContent = getDateLabel(state.time) + " \u2022 " + weekdayName;
     elements.topSeason.textContent = seasonName;
-    elements.slots.textContent = slotsRemaining + "/" + time.MAX_ACTION_SLOTS;
+    elements.slots.textContent = clockLabel + " (" + dayProgressPercent + "%)";
     elements.topRentValue.textContent = "$" + rentAmount;
     elements.topRentDue.textContent = "Next rent due: " + rentDueText;
     elements.devModeToggle.checked = devModeEnabled;
+    if (elements.actionsPanel) {
+      elements.actionsPanel.hidden = !devModeEnabled;
+    }
     elements.devToolsPanel.hidden = !devModeEnabled;
     elements.devToolsContent.hidden = !devModeEnabled || uiState.isDevToolsCollapsed;
     elements.previewTooltipsToggle.hidden = !devModeEnabled;
@@ -1280,12 +1312,12 @@
     }
     elements.lifestyleSelect.value = lifestyleId;
     elements.actionsTooltipEatLine.textContent =
-      "Eat: Costs $" + eatCost + " to restore hunger and energy.";
+      "Eat: Costs $" + eatCost + " to restore hunger and energy. (Legacy shortcut)";
     elements.actionsTooltipSocializeLine.textContent =
-      "Socialize: Costs $" + socializeCost + " to build reputation and social network.";
+      "Socialize: Costs $" + socializeCost + " to build reputation and social network. (Legacy shortcut)";
     elements.actionsTodayDate.textContent = seasonName + " \u2022 " + weekdayName;
     elements.actionsTodaySlots.textContent =
-      "Actions left: " + slotsRemaining + "/" + time.MAX_ACTION_SLOTS;
+      "Clock: " + clockLabel + " \u2022 Day ends at " + endClockLabel;
     elements.actionsTodayHint.textContent = getActionsHint(state);
     elements.worldDateLine.textContent = getDateLabel(state.time) + " \u2022 " + weekdayName;
     elements.worldSeasonLine.textContent = seasonName;
@@ -1395,8 +1427,6 @@
 
     if (!activeJobId) {
       workDisabledReason = "You need a job first. Apply in Opportunities.";
-    } else if (noSlots) {
-      workDisabledReason = "No actions remaining today";
     } else if (state.jobs.workedToday) {
       workDisabledReason = "You already worked today";
     } else if (minWorkEnergy !== null && state.player.needs.energy < minWorkEnergy) {
@@ -1413,22 +1443,22 @@
     setButtonAvailability(
       elements.eatWrap,
       elements.eatButton,
-      noSlots ? "No actions remaining today" : ""
+      ""
     );
     setButtonAvailability(
       elements.socializeWrap,
       elements.socializeButton,
-      noSlots ? "No actions remaining today" : ""
+      ""
     );
     setButtonAvailability(
       elements.restWrap,
       elements.restButton,
-      noSlots ? "No actions remaining today" : ""
+      ""
     );
     setButtonAvailability(
       elements.sleepWrap,
       elements.sleepButton,
-      slotsRemaining > 0 ? "Use your remaining actions before sleeping" : ""
+      ""
     );
 
   }
@@ -1437,6 +1467,7 @@
     initUI: initUI,
     renderUI: renderUI,
     setDevActionRunning: setDevActionRunning,
-    formatLogEntryForDisplay: getFriendlyLogEntry
+    formatLogEntryForDisplay: getFriendlyLogEntry,
+    isWorldTimePaused: isWorldTimePaused
   };
 })(window);
