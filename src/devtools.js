@@ -456,14 +456,15 @@
       return true;
     }
 
-<<<<<<< ours
     function closeEconomyReportViewer() {
-      return;
-=======
-    function destroyEconomyReportViewer() {
       if (!reportViewerElements || !reportViewerElements.modal) return;
       reportViewerElements.modal.style.display = "none";
       reportViewerElements.modal.style.pointerEvents = "none";
+    }
+
+    function destroyEconomyReportViewer() {
+      if (!reportViewerElements || !reportViewerElements.modal) return;
+      closeEconomyReportViewer();
       if (reportViewerElements.modal.parentNode) {
         reportViewerElements.modal.parentNode.removeChild(reportViewerElements.modal);
       }
@@ -557,7 +558,6 @@
       };
 
       return reportViewerElements;
->>>>>>> theirs
     }
 
     function copyTextToClipboard(value) {
@@ -566,15 +566,9 @@
       }
 
       return new Promise(function (resolve, reject) {
-<<<<<<< ours
         var textarea;
         if (!global.document || !global.document.body || typeof global.document.createElement !== "function") {
           reject(new Error("Document unavailable for fallback copy."));
-=======
-        var elements = reportViewerElements;
-        if (!elements || !elements.textarea) {
-          reject(new Error("Viewer textarea unavailable for fallback copy."));
->>>>>>> theirs
           return;
         }
 
@@ -603,8 +597,6 @@
       });
     }
 
-<<<<<<< ours
-=======
     function openEconomyReportViewer() {
       var report = global.__lastEconomyAuditReport;
       var elements = ensureEconomyReportViewerElements();
@@ -639,8 +631,6 @@
       onLog("[DEV][ECON-AUDIT] Opened economy report viewer.");
       return true;
     }
-
->>>>>>> theirs
     function runSmokeTestsAction(state) {
       var report;
 
@@ -979,17 +969,15 @@
       var warnFlags = [];
       var summary = null;
       var firstError = null;
+      var startedAtMs = Date.now();
+      var progressInterval = 25;
 
       function auditLog(line) {
-<<<<<<< ours
-        devLog("Run Economy Simulation Audit", line);
+        onLog("[DEV][ECON] " + line);
       }
 
       function formatDurationMs(durationMs) {
         return (durationMs / 1000).toFixed(1) + "s";
-=======
-        onLog("[DEV][ECON] " + line);
->>>>>>> theirs
       }
 
       function mean(values) {
@@ -1167,12 +1155,8 @@
       try {
         for (var runIndex = 0; runIndex < simulationRuns; runIndex += 1) {
           runSingleSimulation(runIndex);
-<<<<<<< ours
           if ((runIndex + 1) % progressInterval === 0 || runIndex + 1 === simulationRuns) {
-=======
-          if ((runIndex + 1) % 25 === 0 || runIndex + 1 === simulationRuns) {
             auditLog("Progress: " + (runIndex + 1) + "/" + simulationRuns + " ...");
->>>>>>> theirs
             if (global.console) {
               global.console.info("[DEV][ECON] Progress", {
                 completedRuns: runIndex + 1,
@@ -1255,11 +1239,8 @@
       var actionHandled = false;
 
       if (!isDevModeEnabled()) {
-<<<<<<< ours
         deactivateUi();
-=======
         destroyEconomyReportViewer();
->>>>>>> theirs
         return false;
       }
 

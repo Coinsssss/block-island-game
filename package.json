@@ -1,0 +1,18 @@
+{
+  "name": "block-island-game",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "serve": "http-server . -p 4173 -c-1 --silent",
+    "test": "npm run test:syntax && npm run test:smoke",
+    "test:syntax": "node scripts/check-syntax.mjs",
+    "test:smoke": "playwright test",
+    "test:smoke:headed": "playwright test --headed",
+    "test:smoke:debug": "playwright test --debug",
+    "test:install-browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "http-server": "^14.1.1"
+  }
+}

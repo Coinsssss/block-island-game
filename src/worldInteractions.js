@@ -67,9 +67,26 @@
     return available[0] || "";
   }
 
-  function applyActionAndAdvanceTime(state, actionFn) {
-    var success = typeof actionFn === "function" ? Boolean(actionFn()) : false;
-    return success;
+  function applyActionAndAdvanceTime(actionFn) {
+    return typeof actionFn === "function" ? Boolean(actionFn()) : false;
+  }
+
+  function spendTimeForAction(state, actionId, success) {
+    if (!success) {
+      return {
+        minutesSpent: 0,
+        reachedEndOfDay: false
+      };
+    }
+
+    if (!worldTime || typeof worldTime.spendActionTime !== "function") {
+      return {
+        minutesSpent: 0,
+        reachedEndOfDay: false
+      };
+    }
+
+    return worldTime.spendActionTime(state, actionId);
   }
 
   function interactWithNpc(context, npc) {
@@ -77,6 +94,7 @@
     var callbacks = context.callbacks;
     var dialogue;
     var success;
+    var timeResult;
 
     if (!worldTime || !worldTime.isActionAllowedNow || !worldTime.isActionAllowedNow(state, "socialize")) {
       return {
@@ -89,7 +107,7 @@
     if (typeof callbacks.onNpcTalk === "function") {
       success = Boolean(callbacks.onNpcTalk(npc));
     } else {
-      success = applyActionAndAdvanceTime(state, callbacks.onSocialize);
+      success = Boolean(callbacks.onSocialize && callbacks.onSocialize());
     }
     if (!success) {
       return {
@@ -102,13 +120,16 @@
     dialogue = worldNpcs && typeof worldNpcs.getNpcDialogueLine === "function"
       ? worldNpcs.getNpcDialogueLine(npc, worldTime.getMinuteOfDay(state))
       : "Nice seeing you around town.";
+    timeResult = spendTimeForAction(state, "npcTalk", success);
 
     return {
       handled: true,
       success: true,
       message: "You chat with " + npc.name + ".",
       dialogueTitle: npc.name,
-      dialogue: dialogue
+      dialogue: dialogue,
+      timeAdvancedMinutes: timeResult.minutesSpent,
+      reachedEndOfDay: timeResult.reachedEndOfDay
     };
   }
 
@@ -120,6 +141,7 @@
     var starterJobName;
     var pendingJobName;
     var success;
+    var timeResult;
 
     if (!interactable || !interactable.type) {
       return {
@@ -176,11 +198,14 @@
         };
       }
 
-      success = applyActionAndAdvanceTime(state, callbacks.onWork);
+      success = applyActionAndAdvanceTime(callbacks.onWork);
+      timeResult = spendTimeForAction(state, "work", success);
       return {
         handled: true,
         success: success,
-        message: success ? "Shift completed." : "That shift couldn't happen right now."
+        message: success ? "Shift completed." : "That shift couldn't happen right now.",
+        timeAdvancedMinutes: timeResult.minutesSpent,
+        reachedEndOfDay: timeResult.reachedEndOfDay
       };
     }
 
@@ -192,11 +217,14 @@
         return { handled: true, success: false, message: getBlockedTimeMessage("eat") };
       }
 
-      success = applyActionAndAdvanceTime(state, callbacks.onEat);
+      success = applyActionAndAdvanceTime(callbacks.onEat);
+      timeResult = spendTimeForAction(state, "eat", success);
       return {
         handled: true,
         success: success,
-        message: success ? "You grab a meal." : "You couldn't buy food right now."
+        message: success ? "You grab a meal." : "You couldn't buy food right now.",
+        timeAdvancedMinutes: timeResult.minutesSpent,
+        reachedEndOfDay: timeResult.reachedEndOfDay
       };
     }
 
@@ -208,20 +236,26 @@
         return { handled: true, success: false, message: getBlockedTimeMessage("socialize") };
       }
 
-      success = applyActionAndAdvanceTime(state, callbacks.onSocialize);
+      success = applyActionAndAdvanceTime(callbacks.onSocialize);
+      timeResult = spendTimeForAction(state, "socialize", success);
       return {
         handled: true,
         success: success,
-        message: success ? "You spend time around town." : "You couldn't socialize right now."
+        message: success ? "You spend time around town." : "You couldn't socialize right now.",
+        timeAdvancedMinutes: timeResult.minutesSpent,
+        reachedEndOfDay: timeResult.reachedEndOfDay
       };
     }
 
     if (interactable.type === "rest") {
-      success = applyActionAndAdvanceTime(state, callbacks.onRest);
+      success = applyActionAndAdvanceTime(callbacks.onRest);
+      timeResult = spendTimeForAction(state, "rest", success);
       return {
         handled: true,
         success: success,
-        message: success ? "You take a breather." : "You couldn't rest right now."
+        message: success ? "You take a breather." : "You couldn't rest right now.",
+        timeAdvancedMinutes: timeResult.minutesSpent,
+        reachedEndOfDay: timeResult.reachedEndOfDay
       };
     }
 
@@ -229,12 +263,15 @@
       success = typeof callbacks.onToggleStand === "function"
         ? Boolean(callbacks.onToggleStand())
         : false;
+      timeResult = spendTimeForAction(state, "stand", success);
       return {
         handled: true,
         success: success,
         message: success
           ? "You adjust the stand setup."
-          : "You couldn't change stand status right now."
+          : "You couldn't change stand status right now.",
+        timeAdvancedMinutes: timeResult.minutesSpent,
+        reachedEndOfDay: timeResult.reachedEndOfDay
       };
     }
 

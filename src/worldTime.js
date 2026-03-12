@@ -20,6 +20,14 @@
   var EVENING_START = 17 * 60;
   var NIGHT_START = DAY_END_MINUTE;
   var minuteAccumulator = 0;
+  var ACTION_MINUTE_COSTS = {
+    npcTalk: 10,
+    work: 180,
+    eat: 30,
+    socialize: 60,
+    rest: 45,
+    stand: 5
+  };
 
   var ACTION_WINDOWS = {
     work: { morning: true, afternoon: true },
@@ -136,6 +144,37 @@
     return Boolean(windows[segment]);
   }
 
+  function getActionMinuteCost(actionId) {
+    if (!actionId || !Object.prototype.hasOwnProperty.call(ACTION_MINUTE_COSTS, actionId)) {
+      return 0;
+    }
+
+    return ACTION_MINUTE_COSTS[actionId];
+  }
+
+  function spendActionTime(state, actionId, explicitMinutes) {
+    var cost = typeof explicitMinutes === "number" && !Number.isNaN(explicitMinutes)
+      ? Math.max(0, Math.floor(explicitMinutes))
+      : getActionMinuteCost(actionId);
+    var beforeMinute;
+    var afterMinute;
+
+    ensureTimeState(state);
+    if (cost <= 0) {
+      return {
+        minutesSpent: 0,
+        reachedEndOfDay: getMinuteOfDay(state) >= DAY_END_MINUTE
+      };
+    }
+
+    beforeMinute = getMinuteOfDay(state);
+    afterMinute = setMinuteOfDay(state, beforeMinute + cost);
+    return {
+      minutesSpent: Math.max(0, afterMinute - beforeMinute),
+      reachedEndOfDay: afterMinute >= DAY_END_MINUTE
+    };
+  }
+
   function tickClock(state, deltaMs, paused) {
     // Real-time day model: one full day window runs in fixed real-time duration.
     var safeDeltaMs = typeof deltaMs === "number" && !Number.isNaN(deltaMs)
@@ -212,6 +251,9 @@
     formatClock: formatClock,
     getCurrentClockLabel: getCurrentClockLabel,
     isActionAllowedNow: isActionAllowedNow,
+    ACTION_MINUTE_COSTS: ACTION_MINUTE_COSTS,
+    getActionMinuteCost: getActionMinuteCost,
+    spendActionTime: spendActionTime,
     tickClock: tickClock,
     resetClockAccumulator: resetClockAccumulator,
     resetToMorning: resetToMorning

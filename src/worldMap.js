@@ -190,12 +190,29 @@
     ]
   };
 
+  var MAPS_BY_ID = {
+    starter_town_slice: STARTER_MAP
+  };
+
   function deepClone(value) {
     return JSON.parse(JSON.stringify(value));
   }
 
   function createStarterMap() {
     return deepClone(STARTER_MAP);
+  }
+
+  function getDefaultMapId() {
+    return STARTER_MAP.id;
+  }
+
+  function createMapById(mapId) {
+    var resolvedMapId = typeof mapId === "string" && mapId.length > 0
+      ? mapId
+      : getDefaultMapId();
+    var definition = MAPS_BY_ID[resolvedMapId] || MAPS_BY_ID[getDefaultMapId()];
+
+    return definition ? deepClone(definition) : null;
   }
 
   function getCollisionRects(map) {
@@ -249,6 +266,8 @@
 
   ns.worldMap = {
     createStarterMap: createStarterMap,
+    createMapById: createMapById,
+    getDefaultMapId: getDefaultMapId,
     getCollisionRects: getCollisionRects,
     getInteractables: getInteractables,
     getLocationNameAtPosition: getLocationNameAtPosition,

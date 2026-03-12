@@ -11,6 +11,13 @@
 
   var MAX_RENDERED_LOG_ENTRIES = 250;
   var SEASONS = ["spring", "summer", "fall", "winter"];
+  var DEFAULT_OVERWORLD_MAP_ID = "starter_town_slice";
+  var DEFAULT_OVERWORLD_PLAYER_STATE = {
+    x: 230,
+    y: 1030,
+    facingX: 0,
+    facingY: 1
+  };
 
   function ensurePath(obj, pathArray, defaultValue) {
     var current = obj;
@@ -100,7 +107,8 @@
     initialState = {
       season: normalizeSeason(defaultSeason, "spring"),
       events: createInitialEventsState(),
-      stand: createInitialStandState()
+      stand: createInitialStandState(),
+      overworld: createInitialOverworldState()
     };
 
     return initialState;
@@ -121,6 +129,73 @@
       cupsSoldToday: 0,
       earningsToday: 0
     };
+  }
+
+  function createInitialOverworldPlayerState() {
+    return {
+      x: DEFAULT_OVERWORLD_PLAYER_STATE.x,
+      y: DEFAULT_OVERWORLD_PLAYER_STATE.y,
+      facingX: DEFAULT_OVERWORLD_PLAYER_STATE.facingX,
+      facingY: DEFAULT_OVERWORLD_PLAYER_STATE.facingY
+    };
+  }
+
+  function normalizeOverworldPlayerState(rawPlayer) {
+    var player = createInitialOverworldPlayerState();
+
+    if (!rawPlayer || typeof rawPlayer !== "object") {
+      return player;
+    }
+
+    player.x = clampInteger(rawPlayer.x, player.x, 0, 999999);
+    player.y = clampInteger(rawPlayer.y, player.y, 0, 999999);
+    player.facingX = clampInteger(rawPlayer.facingX, player.facingX, -1, 1);
+    player.facingY = clampInteger(rawPlayer.facingY, player.facingY, -1, 1);
+
+    if (player.facingX === 0 && player.facingY === 0) {
+      player.facingY = 1;
+    }
+
+    return player;
+  }
+
+  function createInitialOverworldState() {
+    return {
+      currentMapId: DEFAULT_OVERWORLD_MAP_ID,
+      player: createInitialOverworldPlayerState(),
+      mapStates: {}
+    };
+  }
+
+  function normalizeOverworldState(rawOverworld) {
+    var overworld = createInitialOverworldState();
+    var mapStates;
+
+    if (!rawOverworld || typeof rawOverworld !== "object") {
+      return overworld;
+    }
+
+    if (typeof rawOverworld.currentMapId === "string" && rawOverworld.currentMapId.length > 0) {
+      overworld.currentMapId = rawOverworld.currentMapId;
+    }
+
+    overworld.player = normalizeOverworldPlayerState(rawOverworld.player);
+
+    if (rawOverworld.mapStates && typeof rawOverworld.mapStates === "object") {
+      mapStates = {};
+      Object.keys(rawOverworld.mapStates).forEach(function (mapId) {
+        var mapState = rawOverworld.mapStates[mapId];
+
+        if (!mapState || typeof mapState !== "object") {
+          return;
+        }
+
+        mapStates[mapId] = JSON.parse(JSON.stringify(mapState));
+      });
+      overworld.mapStates = mapStates;
+    }
+
+    return overworld;
   }
 
   function normalizeStandState(rawStand) {
@@ -202,12 +277,14 @@
       world.season = nextFallbackSeason;
       world.events = normalizeEventsState(null, dayNumber);
       world.stand = normalizeStandState(null);
+      world.overworld = normalizeOverworldState(null);
       return world;
     }
 
     world.season = normalizeSeason(rawWorld.season, nextFallbackSeason);
     world.events = normalizeEventsState(rawWorld.events, dayNumber);
     world.stand = normalizeStandState(rawWorld.stand);
+    world.overworld = normalizeOverworldState(rawWorld.overworld);
     return world;
   }
 
@@ -766,6 +843,8 @@ function ensureMessageLogState(state) {
     normalizeEventsState: normalizeEventsState,
     createInitialStandState: createInitialStandState,
     normalizeStandState: normalizeStandState,
+    createInitialOverworldState: createInitialOverworldState,
+    normalizeOverworldState: normalizeOverworldState,
     createInitialStatsState: createInitialStatsState,
     normalizeStatsState: normalizeStatsState,
     createInitialFlagsState: createInitialFlagsState,

@@ -7,6 +7,7 @@
   var worldInteractions = ns.worldInteractions;
   var worldSimulation = ns.worldSimulation;
   var worldRenderer = ns.worldRenderer;
+  var AUTOSAVE_INTERVAL_MS = 6000;
 
   function isFormLikeElement(target) {
     var tagName;
@@ -59,6 +60,8 @@
     var uiRefreshAccumulatorMs = 0;
     var dialogueOpen = false;
     var destroyed = false;
+    var autosaveAccumulatorMs = 0;
+    var autosavePending = false;
 
     if (!canvas || typeof canvas.getContext !== "function") {
       return null;
@@ -69,29 +72,191 @@
       return null;
     }
 
-    map = worldMap && typeof worldMap.createStarterMap === "function"
-      ? worldMap.createStarterMap()
-      : null;
-    if (!map) {
-      return null;
-    }
-
-    player = worldPlayer.createPlayer(map.spawnPoint);
-    input = worldPlayer.createInputState();
-    npcs = worldNpcs && typeof worldNpcs.createNpcRuntime === "function"
-      ? worldNpcs.createNpcRuntime()
-      : [];
-
     function getState() {
       return options && typeof options.getState === "function"
         ? options.getState()
         : null;
     }
 
+    function getDefaultMapId() {
+      return worldMap && typeof worldMap.getDefaultMapId === "function"
+        ? worldMap.getDefaultMapId()
+        : "starter_town_slice";
+    }
+
+    function getSavedMapId(state) {
+      return state &&
+        state.world &&
+        state.world.overworld &&
+        typeof state.world.overworld.currentMapId === "string" &&
+        state.world.overworld.currentMapId.length > 0
+        ? state.world.overworld.currentMapId
+        : getDefaultMapId();
+    }
+
+    function ensurePersistentOverworldState(state) {
+      if (!state || !state.world || typeof state.world !== "object") {
+        return null;
+      }
+
+      if (!state.world.overworld || typeof state.world.overworld !== "object") {
+        state.world.overworld = {};
+      }
+      if (typeof state.world.overworld.currentMapId !== "string" || state.world.overworld.currentMapId.length <= 0) {
+        state.world.overworld.currentMapId = getDefaultMapId();
+      }
+      if (!state.world.overworld.player || typeof state.world.overworld.player !== "object") {
+        state.world.overworld.player = {};
+      }
+      if (!state.world.overworld.mapStates || typeof state.world.overworld.mapStates !== "object") {
+        state.world.overworld.mapStates = {};
+      }
+
+      if (typeof state.world.overworld.player.x !== "number" || Number.isNaN(state.world.overworld.player.x)) {
+        state.world.overworld.player.x = map && map.spawnPoint ? map.spawnPoint.x : 230;
+      }
+      if (typeof state.world.overworld.player.y !== "number" || Number.isNaN(state.world.overworld.player.y)) {
+        state.world.overworld.player.y = map && map.spawnPoint ? map.spawnPoint.y : 1030;
+      }
+      if (typeof state.world.overworld.player.facingX !== "number" || Number.isNaN(state.world.overworld.player.facingX)) {
+        state.world.overworld.player.facingX = 0;
+      }
+      if (typeof state.world.overworld.player.facingY !== "number" || Number.isNaN(state.world.overworld.player.facingY)) {
+        state.world.overworld.player.facingY = 1;
+      }
+
+      if (
+        state.world.overworld.player.facingX === 0 &&
+        state.world.overworld.player.facingY === 0
+      ) {
+        state.world.overworld.player.facingY = 1;
+      }
+
+      return state.world.overworld;
+    }
+
+    map = worldMap && typeof worldMap.createMapById === "function"
+      ? worldMap.createMapById(getSavedMapId(getState()))
+      : (worldMap && typeof worldMap.createStarterMap === "function"
+        ? worldMap.createStarterMap()
+        : null);
+    if (!map) {
+      return null;
+    }
+
+    player = worldPlayer.createPlayer(map.spawnPoint);
+
+    function applySavedPlayerState(state) {
+      var overworldState = ensurePersistentOverworldState(state);
+      var savedPlayerState;
+      var clampedPosition;
+
+      if (!overworldState || !player) {
+        return;
+      }
+
+      savedPlayerState = overworldState.player;
+      clampedPosition = worldMap && typeof worldMap.clampToBounds === "function"
+        ? worldMap.clampToBounds(map, savedPlayerState.x, savedPlayerState.y, player.radius)
+        : {
+            x: savedPlayerState.x,
+            y: savedPlayerState.y
+          };
+
+      player.x = clampedPosition.x;
+      player.y = clampedPosition.y;
+      player.facingX = Math.max(-1, Math.min(1, Math.round(savedPlayerState.facingX || 0)));
+      player.facingY = Math.max(-1, Math.min(1, Math.round(savedPlayerState.facingY || 1)));
+      if (player.facingX === 0 && player.facingY === 0) {
+        player.facingY = 1;
+      }
+    }
+
+    function syncPersistentOverworldState(state) {
+      var overworldState = ensurePersistentOverworldState(state);
+      var roundedX;
+      var roundedY;
+      var roundedFacingX;
+      var roundedFacingY;
+      var changed = false;
+
+      if (!overworldState || !player || !map) {
+        return false;
+      }
+
+      roundedX = Math.round(player.x);
+      roundedY = Math.round(player.y);
+      roundedFacingX = Math.max(-1, Math.min(1, Math.round(player.facingX || 0)));
+      roundedFacingY = Math.max(-1, Math.min(1, Math.round(player.facingY || 1)));
+      if (roundedFacingX === 0 && roundedFacingY === 0) {
+        roundedFacingY = 1;
+      }
+
+      if (overworldState.currentMapId !== map.id) {
+        overworldState.currentMapId = map.id;
+        changed = true;
+      }
+      if (overworldState.player.x !== roundedX) {
+        overworldState.player.x = roundedX;
+        changed = true;
+      }
+      if (overworldState.player.y !== roundedY) {
+        overworldState.player.y = roundedY;
+        changed = true;
+      }
+      if (overworldState.player.facingX !== roundedFacingX) {
+        overworldState.player.facingX = roundedFacingX;
+        changed = true;
+      }
+      if (overworldState.player.facingY !== roundedFacingY) {
+        overworldState.player.facingY = roundedFacingY;
+        changed = true;
+      }
+
+      return changed;
+    }
+
+    function markAutosavePending() {
+      autosavePending = true;
+    }
+
+    function flushAutosave(reason, forceSave) {
+      var currentState = getState();
+
+      if (!currentState) {
+        return false;
+      }
+
+      if (syncPersistentOverworldState(currentState)) {
+        autosavePending = true;
+      }
+
+      if (!forceSave && !autosavePending) {
+        return false;
+      }
+
+      autosaveAccumulatorMs = 0;
+      autosavePending = false;
+      if (options && typeof options.onAutosave === "function") {
+        return Boolean(options.onAutosave(reason || "overworld"));
+      }
+
+      return false;
+    }
+
+    applySavedPlayerState(getState());
+    input = worldPlayer.createInputState();
+    npcs = worldNpcs && typeof worldNpcs.createNpcRuntime === "function"
+      ? worldNpcs.createNpcRuntime()
+      : [];
+
     function resetPlayerToHome() {
       if (!player) return;
 
       worldPlayer.resetPlayerPosition(player, map.sleepSpawnPoint || map.spawnPoint);
+      if (syncPersistentOverworldState(getState())) {
+        markAutosavePending();
+      }
     }
 
     function onKeyDown(event) {
@@ -180,6 +345,24 @@
 
       if (result && result.endDay) {
         resetPlayerToHome();
+        flushAutosave("sleep_transition", true);
+      } else if (result && result.reachedEndOfDay) {
+        runAutomaticDayEnd(state);
+      }
+
+      if (
+        result &&
+        result.handled &&
+        result.success &&
+        !result.endDay &&
+        !result.reachedEndOfDay
+      ) {
+        syncPersistentOverworldState(state);
+        markAutosavePending();
+      }
+
+      if (result && result.handled && options && typeof options.requestRender === "function") {
+        options.requestRender();
       }
     }
 
@@ -237,7 +420,12 @@
       if (worldTime && typeof worldTime.resetClockAccumulator === "function") {
         worldTime.resetClockAccumulator();
       }
+      flushAutosave("automatic_day_end", true);
       feedbackTimeoutMs = 4200;
+    }
+
+    function onPageHide() {
+      flushAutosave("pagehide", true);
     }
 
     function updateHud(state) {
@@ -402,6 +590,23 @@
         runInteraction(state);
       }
 
+      if (
+        movementResult.moved ||
+        (clockTick.advancedMinutes > 0 && !clockTick.reachedEndOfDay)
+      ) {
+        syncPersistentOverworldState(state);
+        markAutosavePending();
+      }
+
+      if (autosavePending) {
+        autosaveAccumulatorMs += deltaMs;
+        if (autosaveAccumulatorMs >= AUTOSAVE_INTERVAL_MS) {
+          flushAutosave("overworld_autosave", false);
+        }
+      } else {
+        autosaveAccumulatorMs = 0;
+      }
+
       if (clockTick.advancedMinutes > 0 || feedbackTimeoutMs > 0) {
         uiRefreshAccumulatorMs += deltaMs;
       }
@@ -418,14 +623,17 @@
 
     global.addEventListener("keydown", onKeyDown);
     global.addEventListener("keyup", onKeyUp);
+    global.addEventListener("pagehide", onPageHide);
     global.requestAnimationFrame(updateFrame);
 
     return {
       resetPlayerToHome: resetPlayerToHome,
       destroy: function () {
         destroyed = true;
+        flushAutosave("destroy", true);
         global.removeEventListener("keydown", onKeyDown);
         global.removeEventListener("keyup", onKeyUp);
+        global.removeEventListener("pagehide", onPageHide);
       }
     };
   }

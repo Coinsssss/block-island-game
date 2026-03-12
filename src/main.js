@@ -80,19 +80,34 @@
     stateApi.addLogEntry(state, message);
   }
 
-  function persistAndRenderFromDevTool() {
+  function persistState(options) {
+    var settings = options && typeof options === "object" ? options : {};
+    var reason = typeof settings.reason === "string" ? settings.reason : "update";
+    var saveOk;
+
     if (global.__DEV_DISABLE_SAVE) {
-      render();
-      return;
+      if (!settings.skipRender) {
+        render();
+      }
+      return true;
     }
 
-    var saveOk = storage.saveState(state);
-
+    saveOk = storage.saveState(state);
     if (!saveOk) {
-      console.warn("[Block Island] Save failed after dev tool action.");
+      console.warn("[Block Island] Save failed after " + reason + ".");
+    } else {
+      debugLog("Saved state after " + reason + ".");
     }
 
-    render();
+    if (!settings.skipRender) {
+      render();
+    }
+
+    return saveOk;
+  }
+
+  function persistAndRenderFromDevTool() {
+    persistState({ reason: "dev tool action" });
   }
 
   var devToolsApi = devtools && typeof devtools.initDevTools === "function"
@@ -884,8 +899,6 @@
     var repPenaltyResult;
     var eventResult;
     var i;
-    var saveOk;
-
     if (!guardCoreRuntimeState("sleep")) {
       return false;
     }
@@ -955,38 +968,19 @@
       events.pruneExpiredModifiers(state);
     }
 
-    if (global.__DEV_DISABLE_SAVE) {
-      render();
-      return true;
-    }
-
-    saveOk = storage.saveState(state);
-    if (!saveOk) {
-      console.warn("[Block Island] Auto-save failed after sleep.");
-    } else {
-      debugLog("Auto-saved after sleep.");
-    }
-
-    render();
+    persistState({ reason: "sleep" });
     return true;
   }
 
   function onNewGame() {
-    var saveOk;
-
     storage.clearSavedState();
     state = stateApi.createInitialState();
     syncWorldSeasonFromTime();
     syncWorldDayFromTime();
-    saveOk = storage.saveState(state);
-
-    if (!saveOk) {
-      console.warn("[Block Island] Save failed while starting a new game.");
-    } else {
-      debugLog("New game save written.");
+    if (ns.overworld && typeof ns.overworld.resetPlayerToHome === "function") {
+      ns.overworld.resetPlayerToHome();
     }
-
-    render();
+    persistState({ reason: "new game" });
     return true;
   }
 
@@ -1042,7 +1036,6 @@
     var nextLifestyle = lifestyle && typeof lifestyle.setLifestyle === "function"
       ? lifestyle.setLifestyle(state, lifestyleId)
       : previousLifestyle;
-    var saveOk;
 
     if (nextLifestyle === previousLifestyle) {
       render();
@@ -1050,11 +1043,7 @@
     }
 
     log(getLifestyleChangeMessage(nextLifestyle));
-    saveOk = storage.saveState(state);
-    if (!saveOk) {
-      console.warn("[Block Island] Save failed after lifestyle change.");
-    }
-    render();
+    persistState({ reason: "lifestyle change" });
     return true;
   }
 
@@ -1289,6 +1278,12 @@
         return state;
       },
       requestRender: render,
+      onAutosave: function () {
+        return persistState({
+          reason: "overworld autosave",
+          skipRender: true
+        });
+      },
       isTimePaused: function () {
         return ui && typeof ui.isWorldTimePaused === "function"
           ? ui.isWorldTimePaused()

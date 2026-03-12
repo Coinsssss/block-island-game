@@ -13,6 +13,7 @@
   var SMOKE_TEST_SLEEP_DAYS = 30;
   var SMOKE_TEST_WORK_SHIFTS = 10;
   var SMOKE_TEST_SOCIALIZES = 10;
+  var AUTOPLAY_ACTION_BUDGET_PER_DAY = 4;
 
   function deepClone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -647,8 +648,6 @@
       (function testCoreActionLoopSanity() {
         var workMoneyBefore;
         var workMoneyAfter;
-        var workSlotsBefore;
-        var workSlotsAfter;
         var eatMoneyBefore;
         var eatMoneyAfter;
         var hungerBefore;
@@ -664,7 +663,6 @@
         var socializeRepChanged;
         var dayBeforeSleep;
         var dayAfterSleep;
-        var sleepSlotsAfter;
         var failures = [];
 
         if (!runWorkAction || !runEatAction || !runSocializeAction || !runSleepAction) {
@@ -692,20 +690,13 @@
         setRelationshipValue(liveState, "locals", 20);
         syncSeasonFromTime(liveState, syncHook);
 
-        liveState.time.actionSlotsRemaining = time.MAX_ACTION_SLOTS;
-        workSlotsBefore = liveState.time.actionSlotsRemaining;
         workMoneyBefore = liveState.player.money;
         runWorkAction();
         workMoneyAfter = liveState.player.money;
-        workSlotsAfter = liveState.time.actionSlotsRemaining;
         if (!(workMoneyAfter > workMoneyBefore)) {
           failures.push("work did not increase money");
         }
-        if (!(workSlotsAfter < workSlotsBefore)) {
-          failures.push("work did not consume an action slot");
-        }
 
-        liveState.time.actionSlotsRemaining = time.MAX_ACTION_SLOTS;
         liveState.player.needs.hunger = 15;
         eatMoneyBefore = liveState.player.money;
         hungerBefore = liveState.player.needs.hunger;
@@ -719,7 +710,6 @@
           failures.push("eat did not increase hunger");
         }
 
-        liveState.time.actionSlotsRemaining = time.MAX_ACTION_SLOTS;
         socializeTownBefore = getTownRep(liveState);
         socializeBarBefore = getBarRep(liveState);
         socializeLocalsBefore = getRelationshipValue(liveState, "locals");
@@ -739,16 +729,11 @@
           failures.push("socialize did not change reputation/relationships");
         }
 
-        liveState.time.actionSlotsRemaining = 0;
         dayBeforeSleep = getDayNumberForState(liveState);
         runSleepAction();
         dayAfterSleep = getDayNumberForState(liveState);
-        sleepSlotsAfter = liveState.time.actionSlotsRemaining;
         if (!(dayAfterSleep > dayBeforeSleep)) {
           failures.push("sleep did not advance day");
-        }
-        if (sleepSlotsAfter !== time.MAX_ACTION_SLOTS) {
-          failures.push("sleep did not reset action slots");
         }
 
         addResult(
@@ -1663,13 +1648,10 @@
   }
 
   function canAttemptAction(state, actionId, costs) {
-    var slots = state && state.time ? state.time.actionSlotsRemaining : 0;
     var minWorkEnergy = jobs && typeof jobs.MIN_WORK_ENERGY === "number"
       ? jobs.MIN_WORK_ENERGY
       : 0;
     var hasJob = Boolean(state && state.jobs && state.jobs.activeJobId);
-
-    if (slots <= 0) return false;
 
     if (actionId === "work") {
       return Boolean(
@@ -1776,15 +1758,14 @@
       expectedBlocked = Boolean(
         !state.jobs.activeJobId ||
         state.jobs.workedToday === true ||
-        before.slots <= 0 ||
         before.energy < minWorkEnergy
       );
     } else if (actionId === "eat") {
-      expectedBlocked = Boolean(before.slots <= 0 || before.money < costs.eat);
+      expectedBlocked = Boolean(before.money < costs.eat);
     } else if (actionId === "socialize") {
-      expectedBlocked = Boolean(before.slots <= 0 || before.money < costs.socialize);
+      expectedBlocked = Boolean(before.money < costs.socialize);
     } else if (actionId === "rest") {
-      expectedBlocked = Boolean(before.slots <= 0);
+      expectedBlocked = false;
     }
 
     try {
@@ -1802,9 +1783,9 @@
     }
 
     after = getAutoplaySnapshot(state);
-    consumedSlot = after.slots < before.slots;
     dayAdvanced = after.day > before.day;
     changedState = didActionChangeState(before, after);
+    consumedSlot = changedState && !dayAdvanced;
 
     if (actionId === "sleep") {
       if (dayAdvanced) {
@@ -2049,7 +2030,7 @@
           redFlags
         );
 
-        while (liveState.time.actionSlotsRemaining > 0 && safetyCounter < 10) {
+        while (actionsConsumedToday < AUTOPLAY_ACTION_BUDGET_PER_DAY && safetyCounter < 10) {
           var actionId;
           var actionResult;
           safetyCounter += 1;
@@ -2083,12 +2064,12 @@
           }
         }
 
-        if (liveState.time.actionSlotsRemaining > 0 && actionsConsumedToday <= 0) {
+        if (actionsConsumedToday <= 0) {
           metrics.softLockDays += 1;
           addOrIncrementFlag(
             redFlags,
             "soft_lock_day",
-            "Autoplay encountered a day without any viable slot-consuming actions."
+            "Autoplay encountered a day without any viable meaningful actions."
           );
         }
 
